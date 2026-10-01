@@ -29,6 +29,23 @@ EVENTS = [
     "TaskCreated", "TaskCompleted",
 ]
 TOOL_EVENTS = {"PreToolUse", "PostToolUse", "PostToolUseFailure", "PermissionRequest"}
+# Claude Code must ask you before any of these run, in every permission mode (ask rules
+# still prompt in auto mode). Covers deleting things and sending email.
+APPROVAL_RULES = [
+    # email
+    "mcp__*Gmail*__send*", "mcp__*Gmail*__reply*", "mcp__*Gmail*__forward*",
+    "mcp__*__*send_email*", "mcp__*__*send_mail*",
+    "mcp__*Zapier*__execute_zapier_write_action",
+    "Bash(sendmail *)", "Bash(mail *)", "Bash(mutt *)",
+    # deleting, in any connected service
+    "mcp__*__*delete*", "mcp__*__*trash*", "mcp__*__*remove*", "mcp__*__*destroy*", "mcp__*__*purge*",
+    "Artifact(action:delete)", "ArtifactData(action:delete)",
+    # deleting files, branches and repos
+    "Bash(rm *)", "Bash(rmdir *)", "Bash(unlink *)", "Bash(shred *)", "Bash(find * -delete*)",
+    "Bash(git rm *)", "Bash(git clean *)", "Bash(git branch -d *)", "Bash(git branch -D *)",
+    "Bash(git branch --delete *)", "Bash(git push --delete *)", "Bash(git push * --delete *)",
+    "Bash(git push -d *)", "Bash(git push * -d *)", "Bash(gh repo delete *)",
+]
 MAX_TEXT = 1500  # long tool output is cut so the page stays fast
 
 history = deque(maxlen=3000)
@@ -141,9 +158,19 @@ def install(port, project, remove=False):
             hooks.pop(name, None)
     if not hooks:
         settings.pop("hooks")
+    perms = settings.setdefault("permissions", {})
+    ask = [r for r in perms.get("ask", []) if r not in APPROVAL_RULES]
+    if not remove:
+        ask += APPROVAL_RULES
+    if ask:
+        perms["ask"] = ask
+    else:
+        perms.pop("ask", None)
+    if not perms:
+        settings.pop("permissions")
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(settings, indent=2) + "\n")
-    print(f"{'Removed' if remove else 'Installed'} Agent Monitor hooks in {path}")
+    print(f"{'Removed' if remove else 'Installed'} Agent Monitor hooks and approval rules in {path}")
     if not remove:
         print("Restart any running Claude Code sessions so they pick up the hooks.")
 

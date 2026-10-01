@@ -97,6 +97,47 @@ header { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
 .row.ask { background: var(--warn-soft); } .row.ask .st { color: var(--warn); }
 .row.user .what { font-style: italic; }
 
+/* tabs + accounts */
+body.on-acc #conn, body.on-acc #status, body.on-acc #note { display: none; }
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); }
+.tab { font: 600 13px var(--f-sans); color: var(--muted); background: transparent; border: 0; border-bottom: 2px solid transparent; padding: 8px 12px; cursor: pointer; margin-bottom: -1px; }
+.tab[aria-selected="true"] { color: var(--fg); border-bottom-color: var(--accent); }
+.tab:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.acc { display: flex; flex-direction: column; gap: 12px; }
+.gate { display: flex; gap: 10px; align-items: flex-start; background: var(--surface); border: 1px solid var(--line); border-left: 3px solid var(--warn); border-radius: 8px; padding: 10px 14px; font-size: 13px; }
+.gate b { display: block; font-size: 13.5px; }
+.gate span { color: var(--muted); }
+.sources { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.src { font-size: 12px; padding: 3px 10px; border-radius: 99px; border: 1px solid var(--line); background: var(--surface); color: var(--muted); }
+.src.ok { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 40%, var(--line)); }
+.src.bad { color: var(--err); border-color: color-mix(in srgb, var(--err) 40%, var(--line)); }
+.src.off { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 40%, var(--line)); }
+.sessions { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; }
+.sess { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; display: flex; flex-direction: column; gap: 4px; min-width: 0; color: inherit; text-decoration: none; }
+.sess:hover { border-color: var(--accent); }
+.sess .top { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
+.sess .title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sess .what { font-size: 12.5px; color: var(--muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.sess .meta { font-size: 11.5px; color: var(--muted); }
+.sess.s-blocked { border-color: var(--warn); }
+.st-working { background: var(--ok-soft); color: var(--ok); } .st-blocked { background: var(--warn-soft); color: var(--warn); }
+.st-idle, .st-failed { background: var(--err-soft); color: var(--err); } .st-review { background: var(--accent-soft); color: var(--accent); }
+.acc-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(240px, 320px); gap: 12px; align-items: start; }
+.tl { display: flex; flex-direction: column; margin-inline: -14px; }
+.ti { display: grid; grid-template-columns: 112px minmax(0, 1fr) auto; gap: 2px 10px; padding: 7px 14px; border-top: 1px solid var(--line); font-size: 13px; color: inherit; text-decoration: none; align-items: baseline; }
+.ti:hover { background: var(--bg); }
+.ti .kind { font-size: 11.5px; font-weight: 600; color: var(--muted); }
+.ti .txt { min-width: 0; overflow-wrap: anywhere; }
+.ti .txt small { display: block; color: var(--muted); font-size: 12px; }
+.ti .when { font-size: 11.5px; color: var(--muted); white-space: nowrap; }
+.ti.flag { background: var(--warn-soft); } .ti.flag .kind { color: var(--warn); }
+.ti.del .kind { color: var(--err); }
+.mini { display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+.mini a { color: var(--fg); text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mini a:hover { color: var(--accent); }
+.msg { color: var(--muted); font-size: 13px; padding: 6px 0; }
+.btn.primary { background: var(--accent); color: var(--surface); border-color: var(--accent); }
+@media (max-width: 860px) { .acc-grid { grid-template-columns: minmax(0, 1fr); } .ti { grid-template-columns: 1fr auto; } .ti .txt { grid-column: 1 / 3; } }
 @keyframes blink { 50% { opacity: .4; } }
 @media (max-width: 980px) { .layout { grid-template-columns: minmax(0, 1fr); } .stage { height: 60vh; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; } }
@@ -110,6 +151,34 @@ header { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
     <span class="note" id="note">These are sample agents. To watch your own, run <code>python3 server.py --install</code>, then <code>python3 server.py</code>, and open <code>127.0.0.1:4820</code>.</span>
   </header>
 
+  <div class="tabs" role="tablist">
+    <button class="tab" role="tab" id="tabAcc" aria-selected="true" aria-controls="accounts" type="button">Your accounts</button>
+    <button class="tab" role="tab" id="tabLive" aria-selected="false" aria-controls="live" type="button">Live agents (3D)</button>
+  </div>
+
+  <section class="acc" id="accounts" role="tabpanel" aria-labelledby="tabAcc">
+    <div class="gate"><div><b>Agents must ask you before deleting anything or sending email.</b>
+      <span>Claude Code shows an approval prompt first, even in auto mode. This applies to Claude Code sessions on this repo, and on your computer once you run <code>server.py --install</code>.</span></div></div>
+    <div class="sources" id="sources"><button class="btn primary" id="connect" type="button">Connect my accounts</button><span class="msg" id="accMsg">Read-only: this page can only look, never send, edit or delete.</span></div>
+
+    <section class="card" aria-label="Claude Code sessions">
+      <div class="card-h"><h2>Claude Code sessions</h2><span class="msg" id="sessAge"></span></div>
+      <div class="sessions" id="sessions"><div class="msg">Connect your accounts to see your sessions.</div></div>
+    </section>
+
+    <div class="acc-grid">
+      <section class="card" aria-label="Everything in the last 3 days">
+        <div class="card-h"><h2>Last 3 days, everywhere</h2><button class="btn" id="refresh" type="button" hidden>Refresh</button></div>
+        <div class="tl" id="timeline"><div class="msg" style="padding:6px 14px">Emails you sent, things moved to trash, calendar changes, Drive files, pull requests and code pushes appear here.</div></div>
+      </section>
+      <section class="card" aria-label="Recently opened in Notion">
+        <div class="card-h"><h2>Recently opened in Notion</h2></div>
+        <div class="mini" id="notion"><div class="msg">Nothing loaded yet.</div></div>
+      </section>
+    </div>
+  </section>
+
+  <div id="live" role="tabpanel" aria-labelledby="tabLive" hidden>
   <div class="layout">
     <section class="stage" id="stage" aria-label="3D map of agents and the tools they use. Drag to turn, scroll to zoom.">
       <canvas id="gl"></canvas>
@@ -134,6 +203,7 @@ header { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
         <div class="feed" id="feed"></div>
       </section>
     </div>
+  </div>
   </div>
 </div>
 
@@ -373,6 +443,7 @@ function frame(t) {
   if (structure) layout();
   const { renderer, scene, camera, orbit } = R;
   const w = stage.clientWidth, h = stage.clientHeight;
+  if (!w || !h) { requestAnimationFrame(frame); return; }
   if (renderer.domElement.width !== Math.round(w * renderer.getPixelRatio())) { renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix(); }
   if (orbit.auto && !reduce) orbit.theta += dt * .08;
   camera.position.set(orbit.r * Math.sin(orbit.phi) * Math.cos(orbit.theta), orbit.r * Math.cos(orbit.phi), orbit.r * Math.sin(orbit.phi) * Math.sin(orbit.theta));
@@ -516,5 +587,171 @@ function demo() {
     setTimeout(() => { ingest({ ...ev }); kick(); step(); }, delay * 1.3);
   })();
 }
+})();
+</script>
+<script>
+/* ===== Your accounts: read-only views of the viewer's connected accounts via claude.ai connectors ===== */
+(() => {
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const DAY = 864e5, SINCE = Date.now() - 3 * DAY;
+const since = new Date(SINCE).toISOString().slice(0, 10);
+const ago = t => { const s = (Date.now() - t) / 1000; return s < 90 ? "just now" : s < 3600 ? `${Math.round(s / 60)} min ago` : s < 86400 ? `${Math.round(s / 3600)} h ago` : `${Math.round(s / 86400)} d ago`; };
+const when = t => new Date(t).toLocaleString([], { weekday: "short", hour: "numeric", minute: "2-digit" });
+const safeUrl = u => /^https:\/\//.test(u || "") ? u : null;
+
+/* tabs */
+const tabs = { acc: [$("tabAcc"), $("accounts")], live: [$("tabLive"), $("live")] };
+function show(name) {
+  for (const [k, [t, p]] of Object.entries(tabs)) { t.setAttribute("aria-selected", k === name); p.hidden = k !== name; }
+  document.body.classList.toggle("on-acc", name === "acc");
+}
+$("tabAcc").addEventListener("click", () => show("acc"));
+$("tabLive").addEventListener("click", () => show("live"));
+show("acc");
+const isLocal = /^https?:$/.test(location.protocol) && /^(127\.0\.0\.1|localhost|\[::1\])$/.test(location.hostname);
+if (isLocal) show("live");
+
+/* one entry per source: what to read, and how to turn the answer into timeline items */
+const SOURCES = [
+  { id: "sessions", label: "Claude Code", server: "Claude Code Remote", tool: "list_sessions", input: { limit: 12 } },
+  { id: "repos", label: "GitHub pushes", server: "Claude Code Remote", tool: "list_repos", input: { limit: 50 } },
+  { id: "prs", label: "GitHub pull requests", server: "GitHub", tool: "search_pull_requests",
+    input: { query: `author:@me updated:>=${since}`, sort: "updated", order: "desc", perPage: 20, fields: ["number", "title", "state", "html_url", "updated_at", "repository_url"] } },
+  { id: "sent", label: "Gmail sent", server: "Gmail", tool: "search_threads", input: { query: "in:sent newer_than:3d", pageSize: 25 } },
+  { id: "trash", label: "Gmail trash", server: "Gmail", tool: "search_threads", input: { query: "in:trash newer_than:3d", includeTrash: true, pageSize: 25 } },
+  { id: "cal", label: "Calendar", server: "Google Calendar", tool: "list_events", input: { orderBy: "lastModified", pageSize: 100 } },
+  { id: "drive", label: "Drive", server: "Google Drive", tool: "list_recent_files", input: { orderBy: "lastModified", pageSize: 20, excludeContentSnippets: true } },
+  { id: "notion", label: "Notion", server: "Notion", tool: "notion-list-recent-pages", input: { limit: 8 } },
+];
+const state = Object.fromEntries(SOURCES.map(s => [s.id, { status: "idle", items: [], raw: null, at: 0, err: null }]));
+
+const parse = p => {
+  if (typeof p !== "string") return p || {};
+  const i = p.indexOf("{"), j = p.lastIndexOf("}");
+  try { return i >= 0 ? JSON.parse(p.slice(i, j + 1)) : {}; } catch { return {}; }
+};
+const TO_ITEMS = {
+  repos: p => (p.repos || []).filter(r => Date.parse(r.pushed_at) > SINCE).map(r => ({ t: Date.parse(r.pushed_at), kind: "Code pushed", text: r.full_name, url: r.url })),
+  prs: p => (p.items || []).map(x => ({ t: Date.parse(x.updated_at), kind: `Pull request · ${x.state || ""}`, text: x.title, sub: String(x.repository_url || "").split("/").slice(-2).join("/"), url: x.html_url })),
+  sent: p => (p.threads || []).flatMap(th => (th.messages || []).filter(m => (m.labelIds || []).includes("SENT") && Date.parse(m.date) > SINCE)
+    .map(m => ({ t: Date.parse(m.date), kind: "Email sent", text: m.subject || "(no subject)", sub: "to " + (m.toRecipients || []).join(", "), url: m.viewUrl, flag: true }))),
+  trash: p => (p.threads || []).flatMap(th => (th.messages || []).filter(m => (m.labelIds || []).includes("TRASH") && Date.parse(m.date) > SINCE).slice(0, 1)
+    .map(m => ({ t: Date.parse(m.date), kind: "Email in trash", text: m.subject || "(no subject)", sub: "from " + (m.sender || "unknown") + " · date of email, not when it was trashed", url: th.viewUrl || m.viewUrl, del: true }))),
+  cal: p => (p.events || []).filter(e => Date.parse(e.updated) > SINCE).map(e => ({ t: Date.parse(e.updated), kind: e.created === e.updated ? "Event created" : "Event changed",
+    text: e.summary || "(untitled event)", sub: "starts " + new Date(e.start?.dateTime || e.start?.date).toLocaleString([], { weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }), url: e.htmlLink })),
+  drive: p => (p.files || []).filter(f => Date.parse(f.modifiedTime) > SINCE).map(f => ({ t: Date.parse(f.modifiedTime), kind: f.createdTime === f.modifiedTime ? "File created" : "File changed",
+    text: f.title, sub: (f.owner ? "owner " + f.owner : ""), url: f.viewUrl })),
+};
+
+/* ---------- rendering ---------- */
+const FIX = {
+  server_not_connected: s => `add ${s.server} in claude.ai Settings → Connectors`,
+  needs_reauth: s => `reconnect ${s.server} in claude.ai Settings → Connectors`,
+  selection_required: () => "choose which account to use",
+  not_in_manifest: () => "not allowed for this page",
+  blocked_by_policy: () => "blocked by your organization",
+  approval_required: () => "needs approval from your organization",
+};
+function renderSources() {
+  const groups = {};
+  for (const s of SOURCES) (groups[s.label] = groups[s.label] || []).push(s);
+  $("sources").innerHTML = SOURCES.map(s => {
+    const st = state[s.id];
+    if (st.status === "loading") return `<span class="src">${esc(s.label)} · loading</span>`;
+    if (st.status === "ok") return `<span class="src ok">${esc(s.label)} ✓</span>`;
+    if (st.status === "error") {
+      const fix = FIX[st.err.code];
+      return `<span class="src ${fix ? "off" : "bad"}" title="${esc(st.err.message)}">${esc(s.label)}: ${esc(fix ? fix(s) : "couldn't load")}</span>`;
+    }
+    return "";
+  }).join("") + (started ? "" : `<button class="btn primary" id="connect" type="button">Connect my accounts</button><span class="msg">Read-only: this page can only look, never send, edit or delete.</span>`);
+  $("connect")?.addEventListener("click", start);
+}
+
+const BUCKET = {
+  SESSION_STATUS_BUCKET_WORKING: ["Working", "working"], SESSION_STATUS_BUCKET_BLOCKED: ["Needs you", "blocked"],
+  SESSION_STATUS_BUCKET_REVIEW_READY: ["Ready to review", "review"], SESSION_STATUS_BUCKET_COMPLETED: ["Idle", "idle"],
+  SESSION_STATUS_BUCKET_FAILED: ["Failed", "failed"],
+};
+function renderSessions() {
+  const st = state.sessions;
+  if (st.status === "error") { $("sessions").innerHTML = `<div class="msg">Couldn't load sessions: ${esc(FIX[st.err.code] ? FIX[st.err.code](SOURCES[0]) : st.err.message)}.</div>`; return; }
+  if (st.status !== "ok") return;
+  const p = st.raw, list = p.ccr?.data || p.data || p.sessions || [];
+  $("sessAge").textContent = st.at ? "updated " + ago(st.at) : "";
+  if (!list.length) { $("sessions").innerHTML = `<div class="msg">No Claude Code sessions yet.</div>`; return; }
+  $("sessions").innerHTML = list.map(x => {
+    const [label, cls] = BUCKET[x.status_bucket] || ["Idle", "idle"];
+    const sum = x.post_turn_summary || x.external_metadata?.post_turn_summary || {};
+    const need = sum.needs_action;
+    const repo = (x.session_context?.sources || []).map(s => String(s.git_repository?.url || "").split("/").slice(-1)[0]).filter(Boolean).join(", ");
+    const cost = x.external_metadata?.usage?.cost_usd;
+    const href = /^session_[A-Za-z0-9]+$/.test(x.id) ? `https://claude.ai/code/${x.id}` : null;
+    return `<a class="sess s-${cls}" ${href ? `href="${href}" target="_blank" rel="noopener"` : ""}>
+      <div class="top"><span class="title">${esc(x.title || "Untitled session")}</span><span class="pill st-${cls}">${label}</span></div>
+      <div class="what">${esc(need ? "Needs you: " + need : sum.status_detail || sum.recent_action || "No summary yet")}</div>
+      <div class="meta mono">${esc(repo)}${repo ? " · " : ""}active ${ago(Date.parse(x.updated_at))}${cost != null ? ` · $${Number(cost).toFixed(2)}` : ""}</div></a>`;
+  }).join("");
+}
+function renderTimeline() {
+  const items = Object.keys(TO_ITEMS).flatMap(id => state[id].items).filter(x => x.t && !isNaN(x.t)).sort((a, b) => b.t - a.t);
+  const anyDone = Object.keys(TO_ITEMS).some(id => state[id].status === "ok" || state[id].status === "error");
+  if (!anyDone) return;
+  $("timeline").innerHTML = items.slice(0, 120).map(x => {
+    const u = safeUrl(x.url);
+    return `<a class="ti ${x.flag ? "flag" : ""} ${x.del ? "del" : ""}" ${u ? `href="${esc(u)}" target="_blank" rel="noopener"` : ""}>
+      <span class="kind">${esc(x.kind)}</span><span class="txt">${esc(x.text)}${x.sub ? `<small>${esc(x.sub)}</small>` : ""}</span><span class="when">${when(x.t)}</span></a>`;
+  }).join("") || `<div class="msg" style="padding:6px 14px">Nothing in the last 3 days from the accounts that loaded.</div>`;
+}
+function renderNotion() {
+  const st = state.notion;
+  if (st.status === "error") { $("notion").innerHTML = `<div class="msg">${esc(FIX[st.err.code] ? FIX[st.err.code](SOURCES.at(-1)) : "Couldn't load Notion")}.</div>`; return; }
+  if (st.status !== "ok") return;
+  const r = st.raw.results || [];
+  $("notion").innerHTML = r.map(x => { const u = safeUrl(x.url); return `<a ${u ? `href="${esc(u)}" target="_blank" rel="noopener"` : ""}>${esc(x.title || "Untitled")}</a>`; }).join("") || `<div class="msg">No recent pages.</div>`;
+}
+const renderAll = () => { renderSources(); renderSessions(); renderTimeline(); renderNotion(); };
+
+/* ---------- data ---------- */
+let mcp = null, started = false, unsubs = [];
+function onEvent(src) {
+  return ev => {
+    const st = state[src.id];
+    if (ev.type === "data") {
+      st.status = "ok"; st.err = null; st.raw = parse(ev.result.payload); st.at = ev.result.cache?.storedAt || Date.now();
+      try { st.items = TO_ITEMS[src.id] ? TO_ITEMS[src.id](st.raw) : []; } catch { st.items = []; }
+    } else {
+      const authz = ["needs_reauth", "server_not_connected", "blocked_by_policy", "approval_required", "not_in_manifest", "selection_required"].includes(ev.error.code);
+      if (authz || st.status !== "ok") { st.status = "error"; st.err = ev.error; if (authz) { st.items = []; st.raw = null; } }
+    }
+    renderAll();
+  };
+}
+async function start() {
+  if (!mcp || started) return;
+  started = true;
+  SOURCES.forEach(s => state[s.id].status = "loading");
+  renderAll();
+  try { const perms = await claude.use("permissions"); await perms?.request(["mcp"]); } catch {}
+  unsubs = SOURCES.map(s => mcp.watchTool(s.server, s.tool, s.input, onEvent(s), { refetchInterval: 120000 }));
+  $("refresh").hidden = false;
+}
+$("refresh").addEventListener("click", async () => { try { await mcp.invalidate(); } catch {} });
+renderSources();
+
+(async () => {
+  try { mcp = await window.claude?.use?.("mcp"); } catch { mcp = null; }
+  if (!mcp) {
+    $("sources").innerHTML = `<span class="msg">Your accounts show when this page is opened on claude.ai. ${isLocal ? "The live agents tab works here." : ""}</span>`;
+    return;
+  }
+  // Start straight away if the viewer already allowed these accounts before; otherwise wait for the button.
+  try {
+    const perms = await claude.use("permissions");
+    const s = await perms?.state("mcp").catch(() => "unavailable");
+    if (s === "granted") start();
+  } catch {}
+})();
 })();
 </script>

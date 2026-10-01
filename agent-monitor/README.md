@@ -9,6 +9,20 @@ Three panels:
 - **Who's talking to what**: main agents → subagents → tools and services (Files, Shell, Code search, Web, each MCP server). Green dashed lines are calls happening now, blue ones happened in the last minute, red ones failed.
 - **Activity**: a plain-language feed ("Explore agent searched code for `calculateTax`", "shop-api is asking permission to run `git push`"). Click any agent to filter to it.
 
+## Your accounts tab
+
+Opened on claude.ai, the page also shows your Claude Code sessions and everything that changed in the last 3 days across your connected accounts: emails you sent, email in trash, calendar changes, Drive files, GitHub pull requests and code pushes, plus recently opened Notion pages. It reads through your claude.ai connectors with your own sign-in, asks once before connecting, and can only look: it has no tools that send, edit or delete.
+
+## Approval before deleting or sending email
+
+`.claude/settings.json` in this repo (and `server.py --install` for your own computer) adds Claude Code `ask` rules, so an agent must get your OK before it:
+
+- sends, replies to or forwards email (Gmail tools, mail commands, Zapier write actions)
+- deletes, trashes or removes anything through a connected service
+- deletes files, branches or repos (`rm`, `git clean`, `git branch -D`, `git push --delete`, `gh repo delete`, and similar)
+
+Ask rules prompt even in auto mode. They match the usual way an agent writes these commands; they are a safety net, not a security boundary (see the Claude Code permissions docs).
+
 ## Setup (one time, about a minute)
 
 Needs Python 3.8+ and nothing else.
