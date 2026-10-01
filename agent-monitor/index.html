@@ -1,0 +1,462 @@
+<title>Agent Monitor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: summary strip on top; agents list (left) beside the who-talks-to-what map and the live activity feed (right). One column on phones. */
+:root {
+  --bg: #f4f6f8; --surface: #ffffff; --line: #dde3e9; --fg: #17202a; --muted: #607080;
+  --accent: #2563c9; --accent-soft: #e3ecfa;
+  --ok: #1f8a4c; --ok-soft: #e1f3e8; --warn: #b36b00; --warn-soft: #fbefd9; --err: #c62f3b; --err-soft: #fbe3e5;
+  --idle: #8a96a3;
+  --f-sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --f-mono: "IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0f1419; --surface: #161d24; --line: #26313c; --fg: #e4e9ee; --muted: #8b99a7;
+  --accent: #6aa2ff; --accent-soft: #1b2b44;
+  --ok: #4cc583; --ok-soft: #15301f; --warn: #f0a73a; --warn-soft: #36290f; --err: #ff6b75; --err-soft: #3a1a1e;
+  --idle: #6b7785; color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --bg: #0f1419; --surface: #161d24; --line: #26313c; --fg: #e4e9ee; --muted: #8b99a7;
+  --accent: #6aa2ff; --accent-soft: #1b2b44;
+  --ok: #4cc583; --ok-soft: #15301f; --warn: #f0a73a; --warn-soft: #36290f; --err: #ff6b75; --err-soft: #3a1a1e;
+  --idle: #6b7785; color-scheme: dark; }
+
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.45 var(--f-sans); padding-inline: 16px; padding-block: 16px 32px; }
+.wrap { max-width: 1400px; margin: 0 auto; display: flex; flex-direction: column; gap: 14px; }
+.mono { font-family: var(--f-mono); font-variant-numeric: tabular-nums; }
+h1 { font-size: 18px; font-weight: 600; margin: 0; letter-spacing: -.01em; }
+h2 { font-size: 12px; font-weight: 600; margin: 0; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+
+/* header */
+header { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; }
+.conn { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 500; padding: 3px 10px; border-radius: 99px; background: var(--accent-soft); color: var(--accent); }
+.conn i { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.conn.live { background: var(--ok-soft); color: var(--ok); } .conn.live i { animation: blink 1.4s infinite; }
+.conn.down { background: var(--err-soft); color: var(--err); }
+.demo-note { font-size: 12.5px; color: var(--muted); flex: 1; min-width: 220px; }
+.demo-note code { font-family: var(--f-mono); font-size: 12px; background: var(--surface); border: 1px solid var(--line); padding: 1px 5px; border-radius: 4px; }
+
+.summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.stat { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px; display: flex; flex-direction: column; gap: 2px; }
+.stat b { font: 600 22px/1.2 var(--f-mono); font-variant-numeric: tabular-nums; }
+.stat span { font-size: 12px; color: var(--muted); }
+.stat.attn { border-color: var(--warn); background: var(--warn-soft); } .stat.attn b { color: var(--warn); }
+.stat.bad b { color: var(--err); }
+
+.main { display: grid; grid-template-columns: minmax(260px, 340px) minmax(0, 1fr); gap: 14px; align-items: start; }
+.col { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+.card-h { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.btn { font: 500 12px var(--f-sans); color: var(--accent); background: transparent; border: 1px solid var(--line); border-radius: 6px; padding: 3px 9px; cursor: pointer; }
+.btn:hover { border-color: var(--accent); }
+.btn:focus-visible, .agent:focus-visible, .node:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* agents */
+.agents { display: flex; flex-direction: column; gap: 6px; }
+.agent { text-align: left; font: inherit; color: inherit; background: transparent; border: 1px solid var(--line); border-radius: 7px; padding: 8px 10px; cursor: pointer; display: grid; grid-template-columns: 9px minmax(0, 1fr) auto; gap: 2px 8px; align-items: center; }
+.agent.sub { margin-left: 18px; position: relative; }
+.agent.sub::before { content: ""; position: absolute; left: -12px; top: -8px; width: 9px; height: 26px; border-left: 1px solid var(--line); border-bottom: 1px solid var(--line); border-bottom-left-radius: 5px; }
+.agent:hover { border-color: var(--muted); }
+.agent.sel { border-color: var(--accent); background: var(--accent-soft); }
+.agent .name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agent .now { grid-column: 2 / 4; font-size: 12.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agent .meta { grid-column: 2 / 4; font-size: 11.5px; color: var(--muted); }
+.dot { width: 9px; height: 9px; border-radius: 50%; background: var(--idle); }
+.s-working .dot { background: var(--ok); box-shadow: 0 0 0 3px var(--ok-soft); animation: blink 1.2s infinite; }
+.s-waiting .dot { background: var(--warn); box-shadow: 0 0 0 3px var(--warn-soft); }
+.s-error .dot { background: var(--err); }
+.pill { font-size: 11px; font-weight: 500; padding: 1px 8px; border-radius: 99px; background: var(--bg); color: var(--muted); white-space: nowrap; }
+.s-working .pill { background: var(--ok-soft); color: var(--ok); }
+.s-waiting .pill { background: var(--warn-soft); color: var(--warn); }
+.s-error .pill { background: var(--err-soft); color: var(--err); }
+.empty { color: var(--muted); font-size: 13px; padding: 8px 2px; }
+
+/* map */
+.map-wrap { overflow-x: auto; }
+.map { display: block; min-width: 720px; width: 100%; }
+.map .col-lbl { fill: var(--muted); font: 600 10.5px var(--f-sans); letter-spacing: .08em; text-transform: uppercase; }
+.map .edge { fill: none; stroke: var(--line); stroke-width: 1.5; }
+.map .edge.recent { stroke: var(--accent); opacity: .55; }
+.map .edge.active { stroke: var(--ok); opacity: 1; stroke-dasharray: 6 5; animation: flow .6s linear infinite; }
+.map .edge.err { stroke: var(--err); opacity: .8; }
+.map .node rect { fill: var(--surface); stroke: var(--line); }
+.map .node.active rect { stroke: var(--ok); stroke-width: 1.5; }
+.map .node.waiting rect { stroke: var(--warn); stroke-width: 1.5; }
+.map .node.sel rect { fill: var(--accent-soft); stroke: var(--accent); }
+.map .node text { fill: var(--fg); font: 500 12px var(--f-sans); }
+.map .node .sub { fill: var(--muted); font: 400 10.5px var(--f-mono); }
+.map .node { cursor: pointer; }
+.map .count { fill: var(--muted); font: 500 10px var(--f-mono); }
+.legend { display: flex; flex-wrap: wrap; gap: 14px; font-size: 12px; color: var(--muted); }
+.legend i { display: inline-block; width: 18px; height: 0; border-top: 2px solid; vertical-align: middle; margin-right: 6px; }
+
+/* feed */
+.feed { display: flex; flex-direction: column; max-height: 480px; overflow-y: auto; margin-inline: -14px; }
+.row { display: grid; grid-template-columns: 62px 130px minmax(0, 1fr) auto; gap: 10px; align-items: baseline; padding: 6px 14px; border-top: 1px solid var(--line); font-size: 13px; }
+.row .t { color: var(--muted); font-size: 11.5px; }
+.row .who { font-size: 12px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row .what { min-width: 0; overflow-wrap: anywhere; }
+.row .what code { font-family: var(--f-mono); font-size: 12px; background: var(--bg); padding: 0 4px; border-radius: 3px; }
+.row .st { font-size: 11.5px; font-family: var(--f-mono); white-space: nowrap; color: var(--muted); }
+.row.run .st { color: var(--ok); } .row.fail .st, .row.fail .what { color: var(--err); }
+.row.ask { background: var(--warn-soft); } .row.ask .st { color: var(--warn); }
+.row.user .what { font-style: italic; }
+.row.new { animation: flash 1.2s ease-out; }
+
+@keyframes blink { 50% { opacity: .45; } }
+@keyframes flow { to { stroke-dashoffset: -11; } }
+@keyframes flash { from { background: var(--accent-soft); } }
+@media (max-width: 900px) { .main { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 560px) {
+  .summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .row { grid-template-columns: 52px minmax(0, 1fr) auto; }
+  .row .who { grid-column: 2 / 4; grid-row: 1; } .row .t { grid-row: 1 / 3; }
+}
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>Agent Monitor</h1>
+    <span class="conn" id="conn"><i></i><span id="connText">Demo data</span></span>
+    <span class="demo-note" id="note">You're looking at sample agents. To watch your own, run <code>python3 server.py --install</code> then <code>python3 server.py</code> and open <code>127.0.0.1:4820</code>.</span>
+  </header>
+
+  <section class="summary" aria-label="Summary">
+    <div class="stat" id="stWorking"><b>0</b><span>Agents working</span></div>
+    <div class="stat" id="stWaiting"><b>0</b><span>Waiting on you</span></div>
+    <div class="stat" id="stCalls"><b>0</b><span>Tool calls, last 5 min</span></div>
+    <div class="stat" id="stErrors"><b>0</b><span>Failed calls</span></div>
+  </section>
+
+  <div class="main">
+    <section class="card" aria-label="Agents">
+      <div class="card-h"><h2>Agents</h2><button class="btn" id="showAll" type="button" hidden>Show all</button></div>
+      <div class="agents" id="agents"><div class="empty">No agents yet. They appear as soon as a Claude Code session starts.</div></div>
+    </section>
+
+    <div class="col">
+      <section class="card" aria-label="Who's talking to what">
+        <div class="card-h"><h2>Who's talking to what</h2>
+          <div class="legend"><span><i style="border-color:var(--ok)"></i>Happening now</span><span><i style="border-color:var(--accent)"></i>Last 60 s</span><span><i style="border-color:var(--err)"></i>Last call failed</span></div>
+        </div>
+        <div class="map-wrap"><svg class="map" id="map" role="img" aria-label="Map of agents and the tools they call"></svg></div>
+      </section>
+
+      <section class="card" aria-label="Activity">
+        <div class="card-h"><h2 id="feedTitle">Activity</h2><button class="btn" id="pause" type="button" aria-pressed="false">Pause</button></div>
+        <div class="feed" id="feed"></div>
+      </section>
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const short = (s, n = 80) => { s = String(s ?? "").replace(/\s+/g, " ").trim(); return s.length > n ? s.slice(0, n - 1) + "…" : s; };
+const base = p => String(p || "").split(/[\\/]/).filter(Boolean).pop() || p || "";
+const hhmmss = ts => new Date(ts * 1000).toLocaleTimeString([], { hour12: false });
+const ago = s => s < 60 ? `${Math.round(s)}s` : s < 3600 ? `${Math.floor(s / 60)}m ${Math.round(s % 60)}s` : `${Math.floor(s / 3600)}h ${Math.floor(s / 60) % 60}m`;
+const now = () => Date.now() / 1000;
+
+/* ---------------- state ---------------- */
+const agents = new Map();   // id -> agent
+const targets = new Map();  // key -> {key,label,kind,calls,last,err}
+const edges = new Map();    // "from|to" -> {from,to,count,active,last,err}
+const pending = new Map();  // tool_use_id -> {agent, target, row, ts}
+const feed = [];            // rows, newest first
+const callTimes = [];
+let errors = 0, selected = null, paused = false, dirty = true;
+
+function mainId(e) { return "S:" + e.session_id; }
+function ensureMain(e) {
+  const id = mainId(e);
+  if (!agents.has(id)) agents.set(id, { id, kind: "main", label: base(e.cwd) || "session", sid: String(e.session_id).slice(0, 6), status: "idle", now: "", started: e.ts, last: e.ts, calls: 0, errors: 0, subs: [] });
+  const a = agents.get(id); if (e.cwd) a.label = base(e.cwd); return a;
+}
+function ensureSub(e) {
+  const m = ensureMain(e);
+  if (!agents.has(e.agent_id)) {
+    agents.set(e.agent_id, { id: e.agent_id, kind: "sub", parent: m.id, label: e.agent_type || "subagent", status: "working", now: "", started: e.ts, last: e.ts, calls: 0, errors: 0 });
+    m.subs.push(e.agent_id);
+    edge(m.id, "A:" + e.agent_id, e.ts).active = 1;
+  }
+  return agents.get(e.agent_id);
+}
+function agentOf(e) { return e.agent_id ? ensureSub(e) : ensureMain(e); }
+function edge(from, to, ts) {
+  const k = from + "|" + to;
+  if (!edges.has(k)) edges.set(k, { from, to, count: 0, active: 0, last: ts, err: false });
+  return edges.get(k);
+}
+
+/* What a tool call is, in plain words, and which "thing" it talks to. */
+function describe(name, i = {}) {
+  const f = i.file_path || i.notebook_path || i.path;
+  if (/^mcp__/.test(name)) {
+    const [, server, ...rest] = name.split("__");
+    return { key: "mcp:" + server, label: server, kind: "MCP server", text: `called <code>${esc(rest.join("__"))}</code> on ${esc(server)}` };
+  }
+  switch (name) {
+    case "Bash": return { key: "shell", label: "Shell", kind: "terminal", text: `ran <code>${esc(short(i.command, 90))}</code>` };
+    case "Read": return { key: "files", label: "Files", kind: "your project", text: `read ${esc(base(f))}` };
+    case "Write": return { key: "files", label: "Files", kind: "your project", text: `wrote ${esc(base(f))}` };
+    case "Edit": case "MultiEdit": case "NotebookEdit": return { key: "files", label: "Files", kind: "your project", text: `edited ${esc(base(f))}` };
+    case "Grep": return { key: "search", label: "Code search", kind: "your project", text: `searched code for <code>${esc(short(i.pattern, 50))}</code>` };
+    case "Glob": return { key: "search", label: "Code search", kind: "your project", text: `listed files matching <code>${esc(short(i.pattern, 50))}</code>` };
+    case "WebFetch": return { key: "web", label: "Web", kind: "internet", text: `opened ${esc(short(i.url, 70))}` };
+    case "WebSearch": return { key: "web", label: "Web", kind: "internet", text: `searched the web for “${esc(short(i.query, 60))}”` };
+    case "TodoWrite": case "TaskCreate": case "TaskUpdate": return { key: "tasks", label: "Task list", kind: "planning", text: "updated its task list" };
+    default: return { key: "tool:" + name, label: name, kind: "tool", text: `used ${esc(name)}` };
+  }
+}
+
+function addRow(e, who, html, cls = "", st = "") {
+  const r = { ts: e.ts, who, html, cls, st, agent: who?.id, fresh: true };
+  feed.unshift(r); if (feed.length > 400) feed.pop();
+  return r;
+}
+
+function ingest(e) {
+  e.ts = e.ts || now();
+  const a = agentOf(e), main = agents.get(a.kind === "main" ? a.id : a.parent);
+  a.last = e.ts; main.last = e.ts;
+  const ev = e.hook_event_name;
+  if (ev === "SessionStart") { a.status = "idle"; addRow(e, a, `session ${e.source === "resume" ? "resumed" : "started"} in ${esc(e.cwd)}`); }
+  else if (ev === "UserPromptSubmit") { main.status = "working"; addRow(e, { label: "You", id: main.id }, `“${esc(short(e.prompt, 160))}”`, "user"); }
+  else if (ev === "PreToolUse") {
+    a.status = "working"; if (a.kind === "sub") main.status = "working";
+    if (e.tool_name === "Agent" || e.tool_name === "Task") {
+      const i = e.tool_input || {};
+      addRow(e, a, `handed a job to the <b>${esc(i.subagent_type || "general")}</b> agent: ${esc(short(i.description || i.prompt, 90))}`);
+      return;
+    }
+    const d = describe(e.tool_name, e.tool_input);
+    if (!targets.has(d.key)) targets.set(d.key, { key: d.key, label: d.label, kind: d.kind, calls: 0, last: e.ts, err: false });
+    const t = targets.get(d.key); t.calls++; t.last = e.ts;
+    const ed = edge(a.id, "T:" + d.key, e.ts); ed.count++; ed.active++; ed.last = e.ts;
+    a.calls++; a.now = d.text.replace(/<[^>]+>/g, ""); callTimes.push(e.ts);
+    const row = addRow(e, a, d.text, "run", "running");
+    pending.set(e.tool_use_id, { a, ed, t, row, ts: e.ts });
+  }
+  else if (ev === "PostToolUse" || ev === "PostToolUseFailure") {
+    const p = pending.get(e.tool_use_id);
+    const fail = ev === "PostToolUseFailure" || (e.tool_response && (e.tool_response.is_error || e.tool_response.interrupted));
+    if (p) {
+      pending.delete(e.tool_use_id);
+      p.ed.active = Math.max(0, p.ed.active - 1); p.ed.last = e.ts; p.ed.err = !!fail; p.t.err = !!fail;
+      p.row.cls = fail ? "fail" : ""; p.row.st = (fail ? "failed · " : "") + ago(e.ts - p.ts);
+      if (![...pending.values()].some(x => x.a === p.a)) p.a.now = "";
+    }
+    if (fail) { errors++; a.errors++; }
+  }
+  else if (ev === "PermissionRequest") {
+    a.status = "waiting"; main.status = "waiting";
+    const d = describe(e.tool_name, e.tool_input);
+    a.now = "needs your OK to " + d.text.replace(/<[^>]+>/g, "");
+    addRow(e, a, `is asking permission to ${d.text}`, "ask", "needs you");
+  }
+  else if (ev === "Notification") {
+    if (/waiting|permission|input/i.test(e.message || "")) { main.status = "waiting"; main.now = e.message; }
+    addRow(e, main, esc(e.message || "notification"), /waiting|permission/i.test(e.message || "") ? "ask" : "");
+  }
+  else if (ev === "SubagentStart") { a.status = "working"; addRow(e, a, "started"); }
+  else if (ev === "SubagentStop") {
+    a.status = "done"; a.now = "";
+    const ed = edges.get(a.parent + "|A:" + a.id); if (ed) { ed.active = 0; ed.last = e.ts; }
+    addRow(e, a, `finished and reported back to ${esc(agents.get(a.parent).label)}`, "", ago(e.ts - a.started));
+  }
+  else if (ev === "Stop") { main.status = "idle"; main.now = ""; addRow(e, main, "finished its turn"); }
+  else if (ev === "StopFailure") { main.status = "error"; main.now = "stopped on an API error"; errors++; addRow(e, main, "stopped because of an API error", "fail"); }
+  else if (ev === "TaskCreated") addRow(e, a, `added task: ${esc(short(e.task_subject || e.subject || e.description, 80))}`);
+  else if (ev === "TaskCompleted") addRow(e, a, `completed task: ${esc(short(e.task_subject || e.subject || e.description, 80))}`);
+  else addRow(e, a, esc(ev));
+  dirty = true;
+}
+
+/* ---------------- render ---------------- */
+const statusText = { working: "Working", waiting: "Needs you", idle: "Idle", done: "Done", error: "Error" };
+function ordered() {
+  const out = [];
+  for (const a of agents.values()) if (a.kind === "main") { out.push(a); a.subs.forEach(id => out.push(agents.get(id))); }
+  return out;
+}
+function inSel(id) {
+  if (!selected) return true;
+  if (id === selected) return true;
+  const a = agents.get(id); return a && a.parent === selected;
+}
+
+function renderAgents() {
+  const list = ordered(), t = now();
+  if (!list.length) return;
+  $("agents").innerHTML = list.map(a => `
+    <button type="button" class="agent ${a.kind} s-${a.status} ${selected === a.id ? "sel" : ""}" data-id="${esc(a.id)}">
+      <span class="dot"></span>
+      <span class="name">${esc(a.kind === "main" ? a.label : a.label + " agent")}</span>
+      <span class="pill">${statusText[a.status]}</span>
+      <span class="now">${esc(a.now || (a.status === "idle" ? "Waiting for your next message" : a.status === "done" ? "Handed results back" : "Thinking…"))}</span>
+      <span class="meta mono">${a.kind === "main" ? "main · " + esc(a.sid) + " · " : ""}${a.calls} calls${a.errors ? ` · ${a.errors} failed` : ""} · active ${ago(t - a.last)} ago</span>
+    </button>`).join("");
+  $("showAll").hidden = !selected;
+}
+
+function renderSummary() {
+  const list = [...agents.values()], t = now();
+  while (callTimes.length && callTimes[0] < t - 300) callTimes.shift();
+  const set = (id, v, flag) => { const el = $(id); el.querySelector("b").textContent = v; if (flag) el.classList.toggle(flag[0], flag[1]); };
+  set("stWorking", list.filter(a => a.status === "working").length);
+  const w = list.filter(a => a.status === "waiting").length;
+  set("stWaiting", w, ["attn", w > 0]);
+  set("stCalls", callTimes.length);
+  set("stErrors", errors, ["bad", errors > 0]);
+}
+
+function renderMap() {
+  const svg = $("map"), t = now();
+  const mains = ordered().filter(a => a.kind === "main");
+  const subs = ordered().filter(a => a.kind === "sub");
+  const tg = [...targets.values()].sort((a, b) => b.calls - a.calls);
+  const NH = 44, GAP = 12, W = 860, top = 30, NW = 190;
+  const xs = [10, (W - NW) / 2, W - NW - 10];
+  const rows = Math.max(mains.length, subs.length, tg.length, 1);
+  const H = top + rows * (NH + GAP) + 6;
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  svg.style.height = Math.round(H) + "px";
+  const pos = new Map();
+  const place = (arr, col, key) => {
+    const off = top + (rows - arr.length) * (NH + GAP) / 2;
+    arr.forEach((n, i) => pos.set(key(n), { x: xs[col], y: off + i * (NH + GAP) }));
+  };
+  place(mains, 0, a => a.id); place(subs, 1, a => "A:" + a.id); place(tg, 2, x => "T:" + x.key);
+  const anchor = (id, side) => { const p = pos.get(id); return p && { x: p.x + (side ? NW : 0), y: p.y + NH / 2 }; };
+
+  let h = `<text class="col-lbl" x="${xs[0]}" y="14">Main agents</text><text class="col-lbl" x="${xs[1]}" y="14">Subagents</text><text class="col-lbl" x="${xs[2]}" y="14">Tools &amp; services</text>`;
+  for (const ed of edges.values()) {
+    const fromId = ed.from, fa = agents.get(fromId);
+    const a = anchor(fa && fa.kind === "sub" ? "A:" + fromId : fromId, 1), b = anchor(ed.to, 0);
+    if (!a || !b) continue;
+    const dim = selected && !inSel(fromId) && !(ed.to === "A:" + selected);
+    const cls = ed.active ? "active" : ed.err ? "err" : t - ed.last < 60 ? "recent" : "";
+    const mx = (a.x + b.x) / 2;
+    h += `<path class="edge ${cls}" d="M${a.x},${a.y} C${mx},${a.y} ${mx},${b.y} ${b.x},${b.y}" opacity="${dim ? .15 : ""}"/>`;
+    if (ed.count && !dim) h += `<text class="count" x="${b.x - 8}" y="${b.y - 5}" text-anchor="end">${ed.count}×</text>`;
+  }
+  const node = (id, p, title, sub, cls, data) => `<g class="node ${cls}" ${data} tabindex="0" transform="translate(${p.x},${p.y})"><rect width="${NW}" height="${NH}" rx="7"/><text x="12" y="19">${esc(short(title, 24))}</text><text class="sub" x="12" y="34">${esc(short(sub, 30))}</text></g>`;
+  mains.forEach(a => h += node(a.id, pos.get(a.id), a.label, statusText[a.status] + " · " + a.calls + " calls", (a.status === "working" ? "active " : a.status === "waiting" ? "waiting " : "") + (selected === a.id ? "sel" : ""), `data-id="${esc(a.id)}"`));
+  subs.forEach(a => h += node(a.id, pos.get("A:" + a.id), a.label + " agent", statusText[a.status] + " · " + a.calls + " calls", (a.status === "working" ? "active " : "") + (selected === a.id ? "sel" : ""), `data-id="${esc(a.id)}"`));
+  tg.forEach(x => {
+    const active = [...edges.values()].some(e => e.to === "T:" + x.key && e.active);
+    h += node(x.key, pos.get("T:" + x.key), x.label, x.kind + " · " + x.calls + " calls", active ? "active" : "", "");
+  });
+  if (!agents.size) h += `<text class="col-lbl" x="${W / 2}" y="${H / 2 + 8}" text-anchor="middle">Nothing yet</text>`;
+  svg.innerHTML = h;
+}
+
+function renderFeed() {
+  const rows = feed.filter(r => inSel(r.agent));
+  $("feedTitle").textContent = selected ? `Activity · ${agents.get(selected).label}` : "Activity";
+  $("feed").innerHTML = rows.slice(0, 200).map(r => `
+    <div class="row ${r.cls} ${r.fresh ? "new" : ""}">
+      <span class="t mono">${hhmmss(r.ts)}</span>
+      <span class="who">${esc(r.who?.kind === "sub" ? r.who.label + " agent" : r.who?.label)}</span>
+      <span class="what">${r.html}</span>
+      <span class="st">${esc(r.st)}</span>
+    </div>`).join("") || `<div class="empty" style="padding:8px 14px">No activity yet.</div>`;
+  feed.forEach(r => r.fresh = false);
+}
+
+function render() {
+  if (!dirty) return; dirty = false;
+  renderSummary(); renderAgents(); renderMap(); if (!paused) renderFeed();
+}
+setInterval(() => { dirty = true; render(); }, 1000);
+const kick = () => requestAnimationFrame(render);
+
+/* ---------------- interaction ---------------- */
+function pick(id) { selected = selected === id ? null : id; dirty = true; render(); }
+$("agents").addEventListener("click", e => { const b = e.target.closest("[data-id]"); if (b) pick(b.dataset.id); });
+$("map").addEventListener("click", e => { const g = e.target.closest("[data-id]"); if (g) pick(g.dataset.id); });
+$("map").addEventListener("keydown", e => { const g = e.target.closest("[data-id]"); if (g && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); pick(g.dataset.id); } });
+$("showAll").addEventListener("click", () => pick(selected));
+$("pause").addEventListener("click", e => {
+  paused = !paused; e.target.textContent = paused ? "Resume" : "Pause"; e.target.setAttribute("aria-pressed", paused);
+  if (!paused) { dirty = true; render(); }
+});
+
+/* ---------------- data source ---------------- */
+function setConn(cls, text) { $("conn").className = "conn " + cls; $("connText").textContent = text; }
+function live() {
+  const es = new EventSource("/stream");
+  let opened = false;
+  es.onopen = () => { opened = true; setConn("live", "Live"); $("note").hidden = true; };
+  es.onmessage = m => { try { ingest(JSON.parse(m.data)); kick(); } catch (err) { console.error(err); } };
+  es.onerror = () => { if (opened) setConn("down", "Disconnected, retrying…"); else { es.close(); demo(); } };
+}
+const isLocal = /^https?:$/.test(location.protocol) && /^(127\.0\.0\.1|localhost|\[::1\])$/.test(location.hostname);
+isLocal ? live() : demo();
+
+/* Demo: sample hook events with the same shape Claude Code sends, so every panel shows real behaviour. */
+function demo() {
+  setConn("", "Demo data");
+  let n = 0; const id = () => "toolu_demo_" + (++n);
+  const S1 = { session_id: "a41f9c2e", cwd: "/Users/you/code/shop-api" };
+  const S2 = { session_id: "7be03d11", cwd: "/Users/you/notes/market-research" };
+  const tool = (s, name, input, ms, opts = {}) => [[0, { ...s, ...opts.sub, hook_event_name: "PreToolUse", tool_name: name, tool_input: input, tool_use_id: opts.id || (opts.id = id()) }],
+    [ms, { ...s, ...opts.sub, hook_event_name: opts.fail ? "PostToolUseFailure" : "PostToolUse", tool_name: name, tool_use_id: opts.id }]];
+  const ex = { agent_id: "ag_explore1", agent_type: "Explore" }, tr = { agent_id: "ag_tests1", agent_type: "test-runner" }, rs = { agent_id: "ag_research1", agent_type: "researcher" };
+  const script = [
+    [0, { ...S1, hook_event_name: "SessionStart", source: "startup" }],
+    [400, { ...S1, hook_event_name: "UserPromptSubmit", prompt: "The checkout tests are failing after the tax change. Find out why, fix it and open a PR." }],
+    ...tool(S1, "Grep", { pattern: "calculateTax" }, 500),
+    ...tool(S1, "Read", { file_path: "/Users/you/code/shop-api/src/checkout/tax.ts" }, 300),
+    [200, { ...S1, hook_event_name: "PreToolUse", tool_name: "Agent", tool_input: { subagent_type: "Explore", description: "Find every caller of calculateTax" }, tool_use_id: "toolu_agent1" }],
+    [300, { ...S1, ...ex, hook_event_name: "SubagentStart" }],
+    [500, { ...S2, hook_event_name: "SessionStart", source: "resume" }],
+    [300, { ...S2, hook_event_name: "UserPromptSubmit", prompt: "Summarise this week's competitor pricing changes into my Notion research page." }],
+    ...tool(S1, "Glob", { pattern: "src/**/*.ts" }, 400, { sub: ex }),
+    ...tool(S2, "WebSearch", { query: "competitor SaaS pricing changes October 2026" }, 1400),
+    ...tool(S1, "Grep", { pattern: "calculateTax\\(" }, 600, { sub: ex }),
+    ...tool(S1, "Read", { file_path: "/Users/you/code/shop-api/src/cart/totals.ts" }, 400, { sub: ex }),
+    [300, { ...S2, hook_event_name: "PreToolUse", tool_name: "Agent", tool_input: { subagent_type: "researcher", description: "Read the top 3 pricing pages" }, tool_use_id: "toolu_agent2" }],
+    [200, { ...S2, ...rs, hook_event_name: "SubagentStart" }],
+    ...tool(S2, "WebFetch", { url: "https://example.com/pricing" }, 1200, { sub: rs }),
+    ...tool(S1, "Read", { file_path: "/Users/you/code/shop-api/src/checkout/summary.ts" }, 500, { sub: ex }),
+    [400, { ...S1, ...ex, hook_event_name: "SubagentStop" }],
+    [100, { ...S1, hook_event_name: "PostToolUse", tool_name: "Agent", tool_use_id: "toolu_agent1" }],
+    ...tool(S1, "Edit", { file_path: "/Users/you/code/shop-api/src/checkout/tax.ts" }, 400),
+    [200, { ...S1, hook_event_name: "PreToolUse", tool_name: "Agent", tool_input: { subagent_type: "test-runner", description: "Run the checkout test suite" }, tool_use_id: "toolu_agent3" }],
+    [200, { ...S1, ...tr, hook_event_name: "SubagentStart" }],
+    ...tool(S2, "WebFetch", { url: "https://example.org/plans" }, 900, { sub: rs }),
+    ...tool(S1, "Bash", { command: "npm test -- checkout" }, 2200, { sub: tr, fail: true }),
+    ...tool(S1, "Read", { file_path: "/Users/you/code/shop-api/test/checkout.test.ts" }, 400, { sub: tr }),
+    ...tool(S2, "WebFetch", { url: "https://example.net/pricing" }, 800, { sub: rs }),
+    [300, { ...S2, ...rs, hook_event_name: "SubagentStop" }],
+    [100, { ...S2, hook_event_name: "PostToolUse", tool_name: "Agent", tool_use_id: "toolu_agent2" }],
+    ...tool(S1, "Bash", { command: "npm test -- checkout" }, 1800, { sub: tr }),
+    [300, { ...S1, ...tr, hook_event_name: "SubagentStop" }],
+    [100, { ...S1, hook_event_name: "PostToolUse", tool_name: "Agent", tool_use_id: "toolu_agent3" }],
+    ...tool(S2, "mcp__notion__notion-update-page", { page_id: "research" }, 1100),
+    [300, { ...S2, hook_event_name: "Stop" }],
+    [200, { ...S1, hook_event_name: "PermissionRequest", tool_name: "Bash", tool_input: { command: "git push -u origin fix/tax-rounding" } }],
+    [3500, { ...S1, hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "git push -u origin fix/tax-rounding" }, tool_use_id: "toolu_push" }],
+    [900, { ...S1, hook_event_name: "PostToolUse", tool_name: "Bash", tool_use_id: "toolu_push" }],
+    ...tool(S1, "mcp__github__create_pull_request", { title: "Fix tax rounding in checkout" }, 1200),
+    [300, { ...S1, hook_event_name: "Stop" }],
+  ];
+  // Replay the first chunk instantly so the page opens mid-run, then play the rest in real time.
+  let i = 0, clock = now() - 20;
+  for (; i < 22; i++) { clock += script[i][0] / 1000; ingest({ ...script[i][1], ts: clock }); }
+  dirty = true; render();
+  (function step() {
+    if (i >= script.length) return;
+    const [delay, ev] = script[i++];
+    setTimeout(() => { ingest({ ...ev }); kick(); step(); }, delay * 1.4);
+  })();
+}
+})();
+</script>
