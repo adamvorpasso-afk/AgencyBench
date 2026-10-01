@@ -59,6 +59,7 @@ header { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
 .lbl.tool { font-weight: 500; transform: translate(-50%, 10px); }
 .lbl.waiting { border-color: var(--warn); color: var(--warn); }
 .lbl.working { border-color: var(--ok); }
+.lbl.idle { border-color: var(--err); }
 .lbl.sel { border-color: var(--accent); background: var(--accent-soft); }
 .lbl.dim { opacity: .35; }
 .overlay { position: absolute; left: 12px; bottom: 10px; right: 12px; display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: var(--muted); pointer-events: none; }
@@ -77,11 +78,11 @@ header { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
 .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--idle); }
 .s-working .dot { background: var(--ok); animation: blink 1.2s infinite; }
 .s-waiting .dot { background: var(--warn); }
-.s-error .dot { background: var(--err); }
+.s-error .dot, .s-idle .dot { background: var(--err); }
 .pill { font-size: 11px; font-weight: 500; padding: 1px 8px; border-radius: 99px; background: var(--bg); color: var(--muted); white-space: nowrap; }
 .s-working .pill { background: var(--ok-soft); color: var(--ok); }
 .s-waiting .pill { background: var(--warn-soft); color: var(--warn); }
-.s-error .pill { background: var(--err-soft); color: var(--err); }
+.s-error .pill, .s-idle .pill { background: var(--err-soft); color: var(--err); }
 .s-done { opacity: .65; }
 .empty { color: var(--muted); font-size: 13px; }
 
@@ -116,7 +117,8 @@ header { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
       <div class="overlay">
         <span><i style="background:var(--ok)"></i>Working</span>
         <span><i style="background:var(--warn)"></i>Needs you</span>
-        <span><i style="background:var(--idle)"></i>Idle or done</span>
+        <span><i style="background:var(--err)"></i>Idle</span>
+        <span><i style="background:var(--idle)"></i>Done</span>
         <span><i class="sq" style="background:var(--tool)"></i>Tool or service</span>
         <span>Moving dots are calls in flight · drag to turn · scroll to zoom</span>
       </div>
@@ -383,7 +385,7 @@ function frame(t) {
     n.mesh.position.lerp(n.pos, 1 - Math.pow(.02, dt));
     const a = agents.get(n.id), st = a ? a.status : null;
     let col = C.tool, glow = 0;
-    if (a) col = st === "working" ? C.ok : st === "waiting" ? C.warn : st === "error" ? C.err : C.idle;
+    if (a) col = st === "working" ? C.ok : st === "waiting" ? C.warn : st === "error" || st === "idle" ? C.err : C.idle;
     else if ([...edges.values()].some(e => e.to === n.id && e.active)) glow = .35;
     n.mesh.material.color.copy(col); n.mesh.material.emissive.copy(col).multiplyScalar(st === "working" || st === "waiting" ? .35 : glow);
     n.halo.material.color.copy(col);
