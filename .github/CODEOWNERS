@@ -1,0 +1,8 @@
+# CODEOWNERS: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+# Later rules take precedence over earlier ones.
+
+# Default owner for everything in the repository
+* @adamvorpasso-afk
+
+# Ownership of this file itself
+/.github/CODEOWNERS @adamvorpasso-afk
