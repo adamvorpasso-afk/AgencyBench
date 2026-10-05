@@ -1,15 +1,16 @@
 """Solar closer gig finder.
 
-An agent that searches the web for solar (and solar + battery) sales closer
-gigs, reads each posting, and ranks them for someone who is new to the
-industry. It is deliberately skeptical: many "closer" listings are really
+An agent that searches the web for REMOTE, entry-level solar (and solar +
+battery) sales closer gigs, reads each posting, and ranks them for someone who
+is new to the industry. Remote setter roles are included as a stepping stone. It is deliberately skeptical: many "closer" listings are really
 unpaid-training door-knocking setter roles, and many "remote" listings are
 field jobs.
 
 Usage:
     pip install -r requirements.txt
     export ANTHROPIC_API_KEY=...          # or `ant auth login`
-    python solar_closer_agent.py --location "Phoenix, AZ" --remote-ok
+    python solar_closer_agent.py                       # remote, entry level (default)
+    python solar_closer_agent.py --allow-field --location "Phoenix, AZ"
 """
 
 from __future__ import annotations
@@ -25,16 +26,34 @@ MODEL = "claude-opus-5-5"
 MAX_CONTINUATIONS = 8  # server tools can pause long turns; resume at most this many times
 
 SYSTEM_PROMPT = """\
-You are a job-search agent for someone who wants to work as a residential solar
-sales CLOSER (solar panels, and ideally home batteries / storage too) but is
-relatively new to the solar industry.
+You are a job-search agent for someone who wants to work REMOTELY as a
+residential solar sales CLOSER (solar panels, and ideally home batteries /
+storage too) and is new to the industry, so they need ENTRY-LEVEL roles.
+
+## Remote rules (unless the user explicitly allows field work)
+- Keep only roles done from home: phone / Zoom / virtual consultations.
+- Drop roles that need driving to homes, canvassing, in-home appointments, or an
+  in-office training period, even when the listing says "Remote". Mention the
+  best of them under "Watch out" so the user knows why they were dropped.
+- If a posting says "in-home OR virtual", keep it but say virtual-only must be
+  confirmed in the interview, and note any state the closer must live in.
+
+## Entry-level rules
+- Prefer "no experience required", "we train", paid training, or a base/hourly.
+- A posting that requires 2+ years of closing experience scores 4 or below.
+- Include REMOTE SETTER / qualifier roles (calling warm leads and booking
+  virtual consultations) as a separate "Stepping stones" list: they are the
+  usual way a newcomer gets promoted to closer. Score whether the company
+  states a setter-to-closer promotion path.
 
 ## How to work
 1. Search broadly: job boards (Indeed, ZipRecruiter, LinkedIn, Glassdoor),
    installer and dealer career pages, and solar-sales recruiting pages. Use
    several phrasings: "solar closer", "solar energy consultant", "solar sales
    consultant", "solar + battery sales", "energy storage sales rep",
-   "solar sales representative entry level", "virtual solar closer".
+   "solar sales representative entry level", "virtual solar closer",
+   "remote solar inside sales", "remote solar appointment setter",
+   "solar phone sales no experience", "work from home solar consultant".
 2. Open the actual posting (web_fetch) before you rank anything. Titles lie.
 3. Keep only postings from roughly the last 45 days that you could actually open.
    Never invent a listing, company, pay figure, or URL.
@@ -66,8 +85,9 @@ Score lower (and say why) when you see:
 ## Output (Markdown only)
 Start with a one-paragraph summary of the market you saw.
 Then a table of the top matches, best first:
-| Score | Role (linked to the posting) | Company | Location / remote? | Pay structure | Appointments provided? | Batteries? | Why it fits a newcomer |
-Then a "Watch out" section for listings that looked attractive but are
+| Score | Role (linked to the posting) | Company | Truly remote? | Experience needed | Pay structure | Leads provided? | Batteries? | Why it fits a newcomer |
+Then a "Stepping stones" table for remote setter roles (same columns plus
+"Promotion path to closer?"), then a "Watch out" section for listings that looked attractive but are
 mislabeled or risky, and a "Red flags" section for anything to avoid.
 Finish with 3-5 practical next steps for a newcomer (e.g. which to apply to
 first, what to ask in the interview: clawbacks, lead source, install timelines,
@@ -76,14 +96,18 @@ who pays for cancelled deals, how batteries are compensated).
 
 
 def build_request(args: argparse.Namespace) -> str:
-    where = args.location or "anywhere in the United States"
-    remote = "Remote / virtual closer roles are welcome." if args.remote_ok else "Prefer in-person or hybrid roles near that location."
+    where = f"I live in {args.location}" if args.location else "I can work from anywhere in the United States"
+    if args.allow_field:
+        mode = "Remote roles first, but in-person or field roles near me are also fine."
+    else:
+        mode = "Remote only: I must be able to do the whole job from home."
     extra = f"\nAdditional preferences: {args.notes}" if args.notes else ""
     return (
         f"Today is {dt.date.today():%B %d, %Y}.\n"
-        f"Find up to {args.max_results} solar closer gigs for me. Location: {where}. {remote}\n"
-        "I'm relatively new to solar panels and batteries, so rank by how well each role "
-        "sets up a beginner to succeed, not just by the headline pay."
+        f"Find up to {args.max_results} entry-level solar closer gigs for me. {where}. {mode}\n"
+        "I'm new to solar panels and batteries, so rank by how well each role "
+        "sets up a beginner to succeed, not just by the headline pay. Include remote "
+        "setter roles that lead to closing as stepping stones."
         f"{extra}"
     )
 
@@ -131,9 +155,9 @@ def run_agent(args: argparse.Namespace) -> str:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Find beginner-friendly solar closer gigs.")
-    parser.add_argument("--location", help='City/state to search around, e.g. "Tampa, FL"')
-    parser.add_argument("--remote-ok", action="store_true", help="Include remote/virtual closer roles")
+    parser = argparse.ArgumentParser(description="Find remote, entry-level solar closer gigs.")
+    parser.add_argument("--location", help='Where you live, e.g. "Tampa, FL" (some remote roles are limited to certain states)')
+    parser.add_argument("--allow-field", action="store_true", help="Also include in-person / field roles (default: remote only)")
     parser.add_argument("--notes", help='Extra preferences, e.g. "W-2 only, no door knocking"')
     parser.add_argument("--max-results", type=int, default=10)
     parser.add_argument("--max-searches", type=int, default=12)

@@ -1,6 +1,6 @@
 # Solar Closer Gig Finder
 
-An agent that searches the web for residential solar (and solar + battery) **closer** gigs, reads each posting, and ranks them for someone new to the industry.
+An agent that searches the web for **remote, entry-level** residential solar (and solar + battery) **closer** gigs, reads each posting, and ranks them for someone new to the industry. It also lists remote **setter** roles as stepping stones, since that is how most newcomers get promoted to closer.
 
 It doesn't take listings at face value. It opens each posting and checks for:
 - **Mislabeled roles**: "Closer" in the title, but the actual job is knocking doors to set appointments.
@@ -15,12 +15,14 @@ It gives more points to paid training, a base pay or draw, appointments the comp
 ```bash
 pip install -r requirements.txt
 export ANTHROPIC_API_KEY=...      # or: ant auth login
-python solar_closer_agent.py --location "Tampa, FL" --remote-ok
-python solar_closer_agent.py --remote-ok --notes "W-2 or base+commission only, no door knocking"
+python solar_closer_agent.py                                   # remote + entry level (default)
+python solar_closer_agent.py --location "Tampa, FL"            # some remote roles are state-restricted
+python solar_closer_agent.py --notes "base pay or paid training only"
+python solar_closer_agent.py --allow-field --location "Tampa, FL"   # also include in-person roles
 ```
 
 Your report prints to the terminal and is also saved as `solar_gigs_<date>.md`.
 
-Options: `--max-results`, `--max-searches` (caps web-search cost), `--effort` (`high` by default), `--out`.
+Options: `--allow-field`, `--max-results`, `--max-searches` (caps web-search cost), `--effort` (`high` by default), `--out`.
 
 Each run uses Claude Opus 5.5 with web search and web fetch. Expect a few minutes per run and roughly a dollar or less at the default settings. Server-side refusal fallback is turned on (`fallbacks: "default"`).
