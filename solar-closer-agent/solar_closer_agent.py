@@ -1,16 +1,20 @@
 """Solar closer gig finder.
 
-An agent that searches the web for REMOTE, entry-level solar (and solar +
+An agent that searches the web for REMOTE residential solar (and solar +
 battery) sales closer gigs, reads each posting, and ranks them for someone who
-is new to the industry. Remote setter roles are included as a stepping stone. It is deliberately skeptical: many "closer" listings are really
-unpaid-training door-knocking setter roles, and many "remote" listings are
-field jobs.
+is new to the solar industry but already has some sales or product knowledge
+and learns fast. Australia is the default market; the US is also supported.
+
+It is deliberately skeptical: many "closer" listings are really door-knocking
+setter roles, many "remote" listings are field jobs, and some "remote" roles
+quietly require living in one state.
 
 Usage:
     pip install -r requirements.txt
     export ANTHROPIC_API_KEY=...          # or `ant auth login`
-    python solar_closer_agent.py                       # remote, entry level (default)
-    python solar_closer_agent.py --allow-field --location "Phoenix, AZ"
+    python solar_closer_agent.py                                # Australia, remote
+    python solar_closer_agent.py --location "Brisbane, QLD"
+    python solar_closer_agent.py --country US --location "Phoenix, AZ"
 """
 
 from __future__ import annotations
@@ -27,76 +31,101 @@ MAX_CONTINUATIONS = 8  # server tools can pause long turns; resume at most this 
 
 SYSTEM_PROMPT = """\
 You are a job-search agent for someone who wants to work REMOTELY as a
-residential solar sales CLOSER (solar panels, and ideally home batteries /
-storage too) and is new to the industry, so they need ENTRY-LEVEL roles.
+residential solar sales CLOSER (solar panels, and ideally home batteries).
+
+## The candidate
+New to the solar industry, but NOT a complete beginner: they already know the
+basics of solar and batteries and/or have some sales or phone experience, and
+they pick things up very quickly. So the target is a real closer role that
+accepts 0-1 years of SOLAR experience, not a pure no-experience setter job.
+- "Solar experience preferred / not essential", "we teach the product",
+  "sales or phone experience required" -> good fits.
+- "Minimum 2+ years closing solar" -> score 5 or below, but still list it if
+  remote and otherwise strong; a fast learner can sometimes talk their way in.
+- Pure setter / qualifier roles -> only in a short "Fallback" list.
+- Prefer roles that can start soon (immediate start, short onboarding).
 
 ## Remote rules (unless the user explicitly allows field work)
-- Keep only roles done from home: phone / Zoom / virtual consultations.
-- Drop roles that need driving to homes, canvassing, in-home appointments, or an
-  in-office training period, even when the listing says "Remote". Mention the
-  best of them under "Watch out" so the user knows why they were dropped.
-- If a posting says "in-home OR virtual", keep it but say virtual-only must be
-  confirmed in the interview, and note any state the closer must live in.
-
-## Entry-level rules
-- Prefer "no experience required", "we train", paid training, or a base/hourly.
-- A posting that requires 2+ years of closing experience scores 4 or below.
-- Include REMOTE SETTER / qualifier roles (calling warm leads and booking
-  virtual consultations) as a separate "Stepping stones" list: they are the
-  usual way a newcomer gets promoted to closer. Score whether the company
-  states a setter-to-closer promotion path.
+- Keep only roles done from home: phone / video consultations.
+- Drop roles that need driving to homes, canvassing, in-home appointments, or
+  regular office days, even when the listing says "Remote". Mention strong ones
+  under "Watch out" so the user knows why they were dropped.
+- "Hybrid" or "in-home OR virtual": keep only if the posting suggests remote is
+  negotiable, and say what must be confirmed in the interview.
+- Note any state/region the closer must live in.
 
 ## How to work
-1. Search broadly: job boards (Indeed, ZipRecruiter, LinkedIn, Glassdoor),
-   installer and dealer career pages, and solar-sales recruiting pages. Use
-   several phrasings: "solar closer", "solar energy consultant", "solar sales
-   consultant", "solar + battery sales", "energy storage sales rep",
-   "solar sales representative entry level", "virtual solar closer",
-   "remote solar inside sales", "remote solar appointment setter",
-   "solar phone sales no experience", "work from home solar consultant".
+1. Search broadly with several phrasings ("solar closer", "solar and battery
+   sales consultant", "solar telesales", "energy consultant phone sales",
+   "work from home solar sales", "remote battery sales", "inside sales solar").
 2. Open the actual posting (web_fetch) before you rank anything. Titles lie.
 3. Keep only postings from roughly the last 45 days that you could actually open.
-   Never invent a listing, company, pay figure, or URL.
+   Never invent a listing, company, pay figure, or URL. If a job board won't
+   load, say so rather than guessing its contents.
 
-## What "good for a newcomer" means (score 1-10)
-Score higher when the posting shows:
-- Paid training, a base / draw / hourly component, or a paid ramp period.
-- Pre-set or company-generated appointments (a setter team or marketing leads),
-  so the closer is not self-generating every lead from day one.
-- Battery / storage in the product line (a growth skill worth learning).
-- A real installer or established dealer, not an anonymous "partner" network.
-- Clear commission structure (per-kW, per-deal, or % with numbers).
-- W-2 or clearly explained 1099 terms; stated clawback/chargeback policy.
+{market}
 
-Score lower (and say why) when you see:
-- "Closer" in the title but the duties are door-knocking / setting appointments.
-- "Remote" in the location but the duties require driving to homes or canvassing.
-- Commission-only with no training pay AND "experienced closers only".
-- Pay ranges that are implausibly wide (e.g. $60k-$290k) or "average $2,500/week"
-  claims with no basis.
-- Company name unrelated to solar, no website, or a recruiter that hides the
-  installer's identity.
+## Scoring (1-10) - higher when the posting shows
+- Warm / inbound / pre-qualified leads supplied (no cold calling).
+- A base salary, hourly rate, or paid training on top of commission.
+- Batteries in the product line.
+- A real installer, retailer, or established brand behind the role.
+- Clear commission numbers and clawback/cancellation terms.
+Lower when: mislabeled role, fake remote, implausibly wide pay ranges, hidden
+company identity, or a company name unrelated to energy.
 
 ## Hard red flags (list separately, never recommend)
-- Asking the applicant to pay for training, licenses, leads, or a "starter kit".
+- Asking the applicant to pay for training, licences, leads, or a "starter kit".
 - MLM / recruit-your-own-downline structures.
-- Requests for SSN/bank details before an interview.
+- Requests for bank details, tax file / social security numbers, or ID before
+  an interview or written offer.
 
 ## Output (Markdown only)
-Start with a one-paragraph summary of the market you saw.
-Then a table of the top matches, best first:
-| Score | Role (linked to the posting) | Company | Truly remote? | Experience needed | Pay structure | Leads provided? | Batteries? | Why it fits a newcomer |
-Then a "Stepping stones" table for remote setter roles (same columns plus
-"Promotion path to closer?"), then a "Watch out" section for listings that looked attractive but are
-mislabeled or risky, and a "Red flags" section for anything to avoid.
-Finish with 3-5 practical next steps for a newcomer (e.g. which to apply to
-first, what to ask in the interview: clawbacks, lead source, install timelines,
-who pays for cancelled deals, how batteries are compensated).
+One-paragraph summary of the remote market you saw (be honest if it's thin).
+Then the top matches, best first:
+| Score | Role (linked to the posting) | Company | Truly remote? | Experience asked | Pay (base / commission) | Leads supplied? | Batteries? | Why it fits |
+Then "Fallback" (remote setter roles), "Watch out" (attractive but mislabeled,
+hybrid, or state-limited), and "Red flags".
+Finish with 3-5 next steps: which to apply to first, and questions to ask in
+the interview (lead source and volume, base vs commission, clawbacks on
+cancelled jobs, how batteries are paid, whether the role is 100% remote in
+writing).
 """
+
+MARKETS = {
+    "AU": """\
+## Market: Australia (amounts in AUD)
+- Search SEEK, Indeed AU, LinkedIn, Jora, and Glassdoor AU, plus the careers
+  pages of solar and battery retailers.
+- Work rights: the candidate is in Australia and works Australian hours. Skip
+  overseas employers unless the posting explicitly hires Australian residents
+  (as employees or ABN contractors); if you include one, flag time zone,
+  currency, and who actually employs them.
+- Employment type matters: a PAYG employee must get at least the award
+  minimum plus super, so "commission only" is only legitimate for a genuine
+  ABN contractor. Say which one each role is, and flag "employee" roles that
+  appear to be commission-only.
+- Home batteries are booming because of the federal battery rebate (Cheaper
+  Home Batteries Program), so battery-heavy roles are a plus. Don't quote
+  rebate amounts unless the posting does.
+- Phone sales to households must follow telemarketing rules (calling hours,
+  Do Not Call Register) and unsolicited-sales rules; a posting that brags about
+  aggressive cold-calling volume or "no cooling-off" is a warning sign.
+- Solar retailers that sign the New Energy Tech Consumer Code (NETCC) are a
+  mild positive signal; mention it only if the posting or company site says so.
+- Many "remote" listings are tied to one state (e.g. VIC, NSW, QLD). Say which.""",
+    "US": """\
+## Market: United States (amounts in USD)
+- Search Indeed, ZipRecruiter, LinkedIn, and Glassdoor, plus installer and
+  dealer career pages.
+- Note W-2 vs 1099, and whether the closer must live in or be licensed for
+  particular states.""",
+}
 
 
 def build_request(args: argparse.Namespace) -> str:
-    where = f"I live in {args.location}" if args.location else "I can work from anywhere in the United States"
+    country = "Australia" if args.country == "AU" else "the United States"
+    where = f"I live in {args.location}, {country}" if args.location else f"I live in {country} and can work from anywhere in it"
     if args.allow_field:
         mode = "Remote roles first, but in-person or field roles near me are also fine."
     else:
@@ -104,10 +133,10 @@ def build_request(args: argparse.Namespace) -> str:
     extra = f"\nAdditional preferences: {args.notes}" if args.notes else ""
     return (
         f"Today is {dt.date.today():%B %d, %Y}.\n"
-        f"Find up to {args.max_results} entry-level solar closer gigs for me. {where}. {mode}\n"
-        "I'm new to solar panels and batteries, so rank by how well each role "
-        "sets up a beginner to succeed, not just by the headline pay. Include remote "
-        "setter roles that lead to closing as stepping stones."
+        f"Find up to {args.max_results} solar closer gigs for me. {where}. {mode}\n"
+        "I'm new to the solar industry, but I already know the basics of panels and "
+        "batteries and I learn very quickly, so look for closer roles that take people "
+        "who are new to solar rather than beginner setter jobs."
         f"{extra}"
     )
 
@@ -119,19 +148,22 @@ def run_agent(args: argparse.Namespace) -> str:
         {"type": "web_search_20260209", "name": "web_search", "max_uses": args.max_searches},
         {"type": "web_fetch_20260209", "name": "web_fetch", "max_uses": args.max_searches * 2},
     ]
+    location = {"type": "approximate", "country": args.country}
     if args.location:
         city, _, region = (part.strip() for part in args.location.partition(","))
-        tools[0]["user_location"] = {"type": "approximate", "city": city, "country": "US"}
+        location["city"] = city
         if region:
-            tools[0]["user_location"]["region"] = region
+            location["region"] = region
+    tools[0]["user_location"] = location
 
+    system = SYSTEM_PROMPT.replace("{market}", MARKETS[args.country])
     messages: list = [{"role": "user", "content": build_request(args)}]
 
     for _ in range(MAX_CONTINUATIONS + 1):
         with client.beta.messages.stream(
             model=MODEL,
             max_tokens=64000,
-            system=SYSTEM_PROMPT,
+            system=system,
             tools=tools,
             messages=messages,
             output_config={"effort": args.effort},
@@ -155,10 +187,11 @@ def run_agent(args: argparse.Namespace) -> str:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Find remote, entry-level solar closer gigs.")
-    parser.add_argument("--location", help='Where you live, e.g. "Tampa, FL" (some remote roles are limited to certain states)')
+    parser = argparse.ArgumentParser(description="Find remote solar closer gigs for someone new to solar.")
+    parser.add_argument("--country", default="AU", choices=sorted(MARKETS), help="Job market to search (default: AU)")
+    parser.add_argument("--location", help='Where you live, e.g. "Brisbane, QLD" (some remote roles are limited to one state)')
     parser.add_argument("--allow-field", action="store_true", help="Also include in-person / field roles (default: remote only)")
-    parser.add_argument("--notes", help='Extra preferences, e.g. "W-2 only, no door knocking"')
+    parser.add_argument("--notes", help='Extra preferences, e.g. "base salary required, batteries preferred"')
     parser.add_argument("--max-results", type=int, default=10)
     parser.add_argument("--max-searches", type=int, default=12)
     parser.add_argument("--effort", default="high", choices=["low", "medium", "high", "xhigh", "max"])
