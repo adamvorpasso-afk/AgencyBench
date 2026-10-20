@@ -1,6 +1,6 @@
 # Solar Closer Gig Finder
 
-An agent that searches the web for **remote** residential solar (and solar + battery) **closer** gigs, reads each posting, and ranks them for someone who is **new to solar but already knows the basics and learns fast**. **Australia** is the default market (SEEK, Indeed AU, LinkedIn, Jora); the US is supported with `--country US`. Remote setter jobs only appear in a short fallback list.
+An agent that searches the web for **remote** residential solar (and solar + battery) **closer** gigs, reads each posting, and ranks them for an **experienced solar closer** who wants remote, commission-based work (default), or with `--experience new` for someone new to solar who learns fast. **Australia** is the default market (SEEK, Indeed AU, LinkedIn, Jora); the US is supported with `--country US`. In experienced mode it skips setter and entry-level jobs and judges commission-only deals on lead volume, commission rate, clawbacks and payment timing.
 
 For Australia it also checks whether a role is PAYG with super or an ABN contract, flags "remote" roles tied to one state, and gives extra points to battery-heavy roles, since demand is up with the federal battery rebate.
 
@@ -26,6 +26,6 @@ python solar_closer_agent.py --allow-field --location "Brisbane, QLD"   # also i
 
 Your report prints to the terminal and is also saved as `solar_gigs_<date>.md`.
 
-Options: `--country` (`AU` default, or `US`), `--allow-field`, `--max-results`, `--max-searches` (caps web-search cost), `--effort` (`high` by default), `--out`.
+Options: `--experience` (`experienced` default, or `new`), `--country` (`AU` default, or `US`), `--allow-field`, `--max-results`, `--max-searches` (caps web-search cost), `--effort` (`high` by default), `--out`.
 
 Each run uses Claude Opus 5.5 with web search and web fetch. Expect a few minutes per run and roughly a dollar or less at the default settings. Server-side refusal fallback is turned on (`fallbacks: "default"`).

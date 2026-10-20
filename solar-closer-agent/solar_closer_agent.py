@@ -33,17 +33,7 @@ SYSTEM_PROMPT = """\
 You are a job-search agent for someone who wants to work REMOTELY as a
 residential solar sales CLOSER (solar panels, and ideally home batteries).
 
-## The candidate
-New to the solar industry, but NOT a complete beginner: they already know the
-basics of solar and batteries and/or have some sales or phone experience, and
-they pick things up very quickly. So the target is a real closer role that
-accepts 0-1 years of SOLAR experience, not a pure no-experience setter job.
-- "Solar experience preferred / not essential", "we teach the product",
-  "sales or phone experience required" -> good fits.
-- "Minimum 2+ years closing solar" -> score 5 or below, but still list it if
-  remote and otherwise strong; a fast learner can sometimes talk their way in.
-- Pure setter / qualifier roles -> only in a short "Fallback" list.
-- Prefer roles that can start soon (immediate start, short onboarding).
+{candidate}
 
 ## Remote rules (unless the user explicitly allows field work)
 - Keep only roles done from home: phone / video consultations.
@@ -67,10 +57,10 @@ accepts 0-1 years of SOLAR experience, not a pure no-experience setter job.
 
 ## Scoring (1-10) - higher when the posting shows
 - Warm / inbound / pre-qualified leads supplied (no cold calling).
-- A base salary, hourly rate, or paid training on top of commission.
 - Batteries in the product line.
 - A real installer, retailer, or established brand behind the role.
 - Clear commission numbers and clawback/cancellation terms.
+{pay_rule}
 Lower when: mislabeled role, fake remote, implausibly wide pay ranges, hidden
 company identity, or a company name unrelated to energy.
 
@@ -84,13 +74,45 @@ company identity, or a company name unrelated to energy.
 One-paragraph summary of the remote market you saw (be honest if it's thin).
 Then the top matches, best first:
 | Score | Role (linked to the posting) | Company | Truly remote? | Experience asked | Pay (base / commission) | Leads supplied? | Batteries? | Why it fits |
-Then "Fallback" (remote setter roles), "Watch out" (attractive but mislabeled,
+Then "Fallback" (remote setter roles; omit for experienced closers), "Watch out" (attractive but mislabeled,
 hybrid, or state-limited), and "Red flags".
 Finish with 3-5 next steps: which to apply to first, and questions to ask in
 the interview (lead source and volume, base vs commission, clawbacks on
 cancelled jobs, how batteries are paid, whether the role is 100% remote in
 writing).
 """
+
+CANDIDATES = {
+    "new": (
+        """## The candidate
+New to the solar industry, but NOT a complete beginner: they already know the
+basics of solar and batteries and/or have some sales or phone experience, and
+they pick things up very quickly. So the target is a real closer role that
+accepts 0-1 years of SOLAR experience, not a pure no-experience setter job.
+- "Solar experience preferred / not essential", "we teach the product",
+  "sales or phone experience required" -> good fits.
+- "Minimum 2+ years closing solar" -> score 5 or below, but still list it if
+  remote and otherwise strong; a fast learner can sometimes talk their way in.
+- Pure setter / qualifier roles -> only in a short "Fallback" list.
+- Prefer roles that can start soon (immediate start, short onboarding).""",
+        "- A base salary, hourly rate, or paid training on top of commission.",
+    ),
+    "experienced": (
+        """## The candidate
+An EXPERIENCED solar closer who already knows panels, batteries, rebates and
+financing, and wants a fully remote, commission-based closing role.
+- Target closer roles (phone / video consults) that want proven solar closers.
+  "2+ years solar", "experienced closers only" are fine, not penalties.
+- Skip setter / qualifier roles entirely; skip training-heavy entry roles.
+- Commission-only ABN contracts are acceptable; judge them on the deal, not
+  the absence of a base.""",
+        """- Commission-only is fine, but score the deal: commission rate or per-kW /
+  per-deal numbers stated, lead volume (appointments per week) and who
+  pays for leads, clawback terms on cancelled jobs, and how fast commission
+  is paid (on signing, deposit, or install).
+- Leads supplied by the company score far higher than "bring your own".""",
+    ),
+}
 
 MARKETS = {
     "AU": """\
@@ -134,10 +156,15 @@ def build_request(args: argparse.Namespace) -> str:
     return (
         f"Today is {dt.date.today():%B %d, %Y}.\n"
         f"Find up to {args.max_results} solar closer gigs for me. {where}. {mode}\n"
-        "I'm new to the solar industry, but I already know the basics of panels and "
-        "batteries and I learn very quickly, so look for closer roles that take people "
-        "who are new to solar rather than beginner setter jobs."
-        f"{extra}"
+        + (
+            "I'm an experienced solar closer, so look for remote, commission-based closer roles "
+            "that want proven solar closers. Skip setter and entry-level roles."
+            if args.experience == "experienced"
+            else "I'm new to the solar industry, but I already know the basics of panels and "
+            "batteries and I learn very quickly, so look for closer roles that take people "
+            "who are new to solar rather than beginner setter jobs."
+        )
+        + extra
     )
 
 
@@ -156,7 +183,12 @@ def run_agent(args: argparse.Namespace) -> str:
             location["region"] = region
     tools[0]["user_location"] = location
 
-    system = SYSTEM_PROMPT.replace("{market}", MARKETS[args.country])
+    candidate, pay_rule = CANDIDATES[args.experience]
+    system = (
+        SYSTEM_PROMPT.replace("{candidate}", candidate)
+        .replace("{pay_rule}", pay_rule)
+        .replace("{market}", MARKETS[args.country])
+    )
     messages: list = [{"role": "user", "content": build_request(args)}]
 
     for _ in range(MAX_CONTINUATIONS + 1):
@@ -190,6 +222,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Find remote solar closer gigs for someone new to solar.")
     parser.add_argument("--country", default="AU", choices=sorted(MARKETS), help="Job market to search (default: AU)")
     parser.add_argument("--location", help='Where you live, e.g. "Brisbane, QLD" (some remote roles are limited to one state)')
+    parser.add_argument("--experience", default="experienced", choices=sorted(CANDIDATES), help="Your solar sales experience (default: experienced)")
     parser.add_argument("--allow-field", action="store_true", help="Also include in-person / field roles (default: remote only)")
     parser.add_argument("--notes", help='Extra preferences, e.g. "base salary required, batteries preferred"')
     parser.add_argument("--max-results", type=int, default=10)
