@@ -30,7 +30,7 @@ EVENTS = [
 ]
 TOOL_EVENTS = {"PreToolUse", "PostToolUse", "PostToolUseFailure", "PermissionRequest"}
 # Claude Code must ask you before any of these run, in every permission mode (ask rules
-# still prompt in auto mode). Covers deleting things and sending email.
+# still prompt in auto mode). Covers sending email and deleting things in your accounts.
 APPROVAL_RULES = [
     # email
     "mcp__*Gmail*__send*", "mcp__*Gmail*__reply*", "mcp__*Gmail*__forward*",
@@ -40,10 +40,8 @@ APPROVAL_RULES = [
     # deleting, in any connected service
     "mcp__*__*delete*", "mcp__*__*trash*", "mcp__*__*remove*", "mcp__*__*destroy*", "mcp__*__*purge*",
     "Artifact(action:delete)", "ArtifactData(action:delete)",
-    # deleting files, branches and repos
-    "Bash(rm *)", "Bash(rmdir *)", "Bash(unlink *)", "Bash(shred *)", "Bash(find * -delete*)",
-    "Bash(git rm *)", "Bash(git clean *)", "Bash(git branch -d *)", "Bash(git branch -D *)",
-    "Bash(git branch --delete *)", "Bash(git push --delete *)", "Bash(git push * --delete *)",
+    # deleting branches and repos on GitHub (deleting local files while coding doesn't ask)
+    "Bash(git push --delete *)", "Bash(git push * --delete *)",
     "Bash(git push -d *)", "Bash(git push * -d *)", "Bash(gh repo delete *)",
 ]
 MAX_TEXT = 1500  # long tool output is cut so the page stays fast
@@ -175,14 +173,34 @@ def install(port, project, remove=False):
         print("Restart any running Claude Code sessions so they pick up the hooks.")
 
 
+def check(port, project):
+    """Fail-safe: confirm the approval rules and hooks are really in place."""
+    ok = True
+    for label, path in [("this repo", Path(".claude/settings.json")), ("your settings", settings_path(project))]:
+        settings = json.loads(path.read_text()) if path.exists() else {}
+        missing = [r for r in APPROVAL_RULES if r not in settings.get("permissions", {}).get("ask", [])]
+        print(f"{'OK  ' if not missing else 'MISSING'} approval rules in {label} ({path}): "
+              f"{len(APPROVAL_RULES) - len(missing)}/{len(APPROVAL_RULES)}")
+        ok &= not missing or label == "this repo" and not path.exists()
+    url = f"http://127.0.0.1:{port}{HOOK_PATH}"
+    hooks = json.loads(settings_path(project).read_text()).get("hooks", {}) if settings_path(project).exists() else {}
+    have = [n for n in EVENTS if any(is_ours(g, url) for g in hooks.get(n, []))]
+    print(f"{'OK  ' if len(have) == len(EVENTS) else 'MISSING'} monitor hooks: {len(have)}/{len(EVENTS)}")
+    print("All good." if ok and len(have) == len(EVENTS) else "Run: python3 server.py --install")
+    return 0 if ok and len(have) == len(EVENTS) else 1
+
+
 def main():
     ap = argparse.ArgumentParser(description="Live monitor for Claude Code agents")
     ap.add_argument("--port", type=int, default=4820)
     ap.add_argument("--install", action="store_true", help="add hooks to Claude Code settings")
     ap.add_argument("--uninstall", action="store_true", help="remove the hooks")
+    ap.add_argument("--check", action="store_true", help="confirm the approval rules and hooks are installed")
     ap.add_argument("--project", action="store_true",
                     help="use ./.claude/settings.local.json instead of your user settings")
     a = ap.parse_args()
+    if a.check:
+        sys.exit(check(a.port, a.project))
     if a.install or a.uninstall:
         return install(a.port, a.project, remove=a.uninstall)
     srv = ThreadingHTTPServer(("127.0.0.1", a.port), Handler)

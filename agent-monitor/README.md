@@ -19,7 +19,11 @@ Opened on claude.ai, the page also shows your Claude Code sessions and everythin
 
 - sends, replies to or forwards email (Gmail tools, mail commands, Zapier write actions)
 - deletes, trashes or removes anything through a connected service
-- deletes files, branches or repos (`rm`, `git clean`, `git branch -D`, `git push --delete`, `gh repo delete`, and similar)
+- deletes GitHub branches or repos (`git push --delete`, `gh repo delete`)
+
+Deleting local files while coding doesn't ask.
+
+**Fail-safe check:** `python3 server.py --check` tells you whether the rules and hooks are really installed.
 
 Ask rules prompt even in auto mode. They match the usual way an agent writes these commands; they are a safety net, not a security boundary (see the Claude Code permissions docs).
 
@@ -44,4 +48,13 @@ Claude Code [hooks](https://code.claude.com/docs/en/hooks) of type `http` POST e
 
 If the monitor isn't running, the hook request fails fast (2 s timeout) and Claude Code carries on as normal. The server always answers with an empty decision, so it never blocks or changes what agents do.
 
-Opening `index.html` directly (not from the server) plays a built-in demo.
+The Live agents tab only appears when the page is opened from `server.py`; the published page shows only real account data, never demo data.
+
+## Undo
+
+Everything before this cleanup is saved at commit `06c5d88` on this branch. To put any file back:
+
+```bash
+git checkout 06c5d88 -- agent-monitor .claude      # restore the monitor and rules as they were
+git checkout 19b1fc1 -- jarvis                      # bring back the old J.A.R.V.I.S. page
+```

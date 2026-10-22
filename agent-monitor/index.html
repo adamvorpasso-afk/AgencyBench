@@ -146,9 +146,9 @@ body.on-acc #conn, body.on-acc #status, body.on-acc #note { display: none; }
 <div class="wrap">
   <header>
     <h1>Agent Monitor</h1>
-    <span class="conn" id="conn"><i></i><span id="connText">Demo data</span></span>
+    <span class="conn" id="conn"><i></i><span id="connText">Connecting…</span></span>
     <span class="status" id="status">Starting…</span>
-    <span class="note" id="note">These are sample agents. To watch your own, run <code>python3 server.py --install</code>, then <code>python3 server.py</code>, and open <code>127.0.0.1:4820</code>.</span>
+    <span class="note" id="note">Nothing yet? Check <code>python3 server.py</code> is running, then start or restart Claude Code.</span>
   </header>
 
   <div class="tabs" role="tablist">
@@ -157,7 +157,7 @@ body.on-acc #conn, body.on-acc #status, body.on-acc #note { display: none; }
   </div>
 
   <section class="acc" id="accounts" role="tabpanel" aria-labelledby="tabAcc">
-    <div class="gate"><div><b>Agents must ask you before deleting anything or sending email.</b>
+    <div class="gate"><div><b>Agents must ask you before sending email or deleting anything in your accounts or on GitHub.</b>
       <span>Claude Code shows an approval prompt first, even in auto mode. This applies to Claude Code sessions on this repo, and on your computer once you run <code>server.py --install</code>.</span></div></div>
     <div class="sources" id="sources"><button class="btn primary" id="connect" type="button">Connect my accounts</button><span class="msg" id="accMsg">Read-only: this page can only look, never send, edit or delete.</span></div>
 
@@ -532,61 +532,11 @@ function live() {
   const es = new EventSource("/stream"); let opened = false;
   es.onopen = () => { opened = true; setConn("live", "Live"); $("note").hidden = true; };
   es.onmessage = m => { try { ingest(JSON.parse(m.data)); kick(); } catch (err) { console.error(err); } };
-  es.onerror = () => { if (opened) setConn("down", "Disconnected, retrying…"); else { es.close(); demo(); } };
+  es.onerror = () => setConn("down", opened ? "Disconnected, retrying…" : "Waiting for server.py…");
 }
 const isLocal = /^https?:$/.test(location.protocol) && /^(127\.0\.0\.1|localhost|\[::1\])$/.test(location.hostname);
-isLocal ? live() : demo();
+if (isLocal) live();
 
-/* Demo: sample events in the exact shape Claude Code's hooks send. Loops so the view keeps moving. */
-function demo() {
-  setConn("", "Demo data");
-  let n = 0;
-  const S1 = { session_id: "a41f9c2e", cwd: "/Users/you/code/shop-api" }, S2 = { session_id: "7be03d11", cwd: "/Users/you/notes/market-research" };
-  const run = (s, name, input, ms, sub, fail) => { const id = "toolu_demo_" + (++n); return [[0, { ...s, ...sub, hook_event_name: "PreToolUse", tool_name: name, tool_input: input, tool_use_id: id }], [ms, { ...s, ...sub, hook_event_name: fail ? "PostToolUseFailure" : "PostToolUse", tool_name: name, tool_use_id: id }]]; };
-  const ex = { agent_id: "ag_explore", agent_type: "Explore" }, tr = { agent_id: "ag_tests", agent_type: "test-runner" }, rs = { agent_id: "ag_research", agent_type: "researcher" };
-  const script = [
-    [0, { ...S1, hook_event_name: "SessionStart", source: "startup" }],
-    [400, { ...S1, hook_event_name: "UserPromptSubmit", prompt: "The checkout tests are failing after the tax change. Find out why, fix it and open a PR." }],
-    ...run(S1, "Grep", { pattern: "calculateTax" }, 500),
-    ...run(S1, "Read", { file_path: "src/checkout/tax.ts" }, 300),
-    [200, { ...S1, hook_event_name: "PreToolUse", tool_name: "Agent", tool_input: { subagent_type: "Explore", description: "Find every caller of calculateTax" }, tool_use_id: "toolu_a1" }],
-    [300, { ...S1, ...ex, hook_event_name: "SubagentStart" }],
-    [500, { ...S2, hook_event_name: "SessionStart", source: "resume" }],
-    [300, { ...S2, hook_event_name: "UserPromptSubmit", prompt: "Summarise this week's competitor pricing changes into my Notion research page." }],
-    ...run(S1, "Glob", { pattern: "src/**/*.ts" }, 400, ex),
-    ...run(S2, "WebSearch", { query: "competitor SaaS pricing changes" }, 1400),
-    ...run(S1, "Grep", { pattern: "calculateTax(" }, 600, ex),
-    [300, { ...S2, hook_event_name: "PreToolUse", tool_name: "Agent", tool_input: { subagent_type: "researcher", description: "Read the top 3 pricing pages" }, tool_use_id: "toolu_a2" }],
-    [200, { ...S2, ...rs, hook_event_name: "SubagentStart" }],
-    ...run(S2, "WebFetch", { url: "https://example.com/pricing" }, 1200, rs),
-    ...run(S1, "Read", { file_path: "src/cart/totals.ts" }, 500, ex),
-    [400, { ...S1, ...ex, hook_event_name: "SubagentStop" }],
-    ...run(S1, "Edit", { file_path: "src/checkout/tax.ts" }, 400),
-    [200, { ...S1, hook_event_name: "PreToolUse", tool_name: "Agent", tool_input: { subagent_type: "test-runner", description: "Run the checkout tests" }, tool_use_id: "toolu_a3" }],
-    [200, { ...S1, ...tr, hook_event_name: "SubagentStart" }],
-    ...run(S2, "WebFetch", { url: "https://example.org/plans" }, 900, rs),
-    ...run(S1, "Bash", { command: "npm test -- checkout" }, 2200, tr, true),
-    ...run(S1, "Read", { file_path: "test/checkout.test.ts" }, 400, tr),
-    [300, { ...S2, ...rs, hook_event_name: "SubagentStop" }],
-    ...run(S1, "Bash", { command: "npm test -- checkout" }, 1800, tr),
-    [300, { ...S1, ...tr, hook_event_name: "SubagentStop" }],
-    ...run(S2, "mcp__notion__notion-update-page", { page_id: "research" }, 1100),
-    [300, { ...S2, hook_event_name: "Stop" }],
-    [200, { ...S1, hook_event_name: "PermissionRequest", tool_name: "Bash", tool_input: { command: "git push -u origin fix/tax-rounding" } }],
-    ...run(S1, "Bash", { command: "git push -u origin fix/tax-rounding" }, 900).map((x, i) => i ? x : [3500, x[1]]),
-    ...run(S1, "mcp__github__create_pull_request", { title: "Fix tax rounding in checkout" }, 1200),
-    [300, { ...S1, hook_event_name: "Stop" }],
-    [5000, { ...S1, hook_event_name: "UserPromptSubmit", prompt: "Thanks. Now check the refund flow has the same bug." }],
-  ];
-  let i = 0, clock = now() - 15;
-  for (; i < 16; i++) { clock += script[i][0] / 1000; ingest({ ...script[i][1], ts: clock }); }
-  dirty = true; render();
-  (function step() {
-    if (i >= script.length) { i = 2; } // loop the work (not the session start) so the demo keeps moving
-    const [delay, ev] = script[i++];
-    setTimeout(() => { ingest({ ...ev }); kick(); step(); }, delay * 1.3);
-  })();
-}
 })();
 </script>
 <script>
@@ -610,7 +560,7 @@ $("tabAcc").addEventListener("click", () => show("acc"));
 $("tabLive").addEventListener("click", () => show("live"));
 show("acc");
 const isLocal = /^https?:$/.test(location.protocol) && /^(127\.0\.0\.1|localhost|\[::1\])$/.test(location.hostname);
-if (isLocal) show("live");
+if (isLocal) show("live"); else document.querySelector(".tabs").hidden = true;
 
 /* one entry per source: what to read, and how to turn the answer into timeline items */
 const SOURCES = [
