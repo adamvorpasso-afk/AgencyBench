@@ -1,0 +1,707 @@
+<title>Agent Monitor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: one status line on top; the 3D map takes most of the screen, a short agents list and the activity feed sit beside it (below it on phones). */
+:root {
+  --bg: #eef1f4; --surface: #ffffff; --line: #d6dde4; --fg: #17202a; --muted: #5f6f7f;
+  --accent: #2563c9; --accent-soft: #e3ecfa;
+  --ok: #1f8a4c; --ok-soft: #e1f3e8; --warn: #b36b00; --warn-soft: #fbefd9; --err: #c62f3b; --err-soft: #fbe3e5;
+  --idle: #8a96a3; --space: #f8fafc; --tool: #7a5bd6;
+  --f-sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --f-mono: "IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0b1015; --surface: #141b22; --line: #26313c; --fg: #e4e9ee; --muted: #8b99a7;
+  --accent: #6aa2ff; --accent-soft: #1b2b44;
+  --ok: #4cc583; --ok-soft: #15301f; --warn: #f0a73a; --warn-soft: #36290f; --err: #ff6b75; --err-soft: #3a1a1e;
+  --idle: #6b7785; --space: #0e151c; --tool: #a58bff; color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --bg: #0b1015; --surface: #141b22; --line: #26313c; --fg: #e4e9ee; --muted: #8b99a7;
+  --accent: #6aa2ff; --accent-soft: #1b2b44;
+  --ok: #4cc583; --ok-soft: #15301f; --warn: #f0a73a; --warn-soft: #36290f; --err: #ff6b75; --err-soft: #3a1a1e;
+  --idle: #6b7785; --space: #0e151c; --tool: #a58bff; color-scheme: dark; }
+
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.45 var(--f-sans); padding-inline: 16px; padding-block: 14px 28px; }
+.wrap { max-width: 1440px; margin: 0 auto; display: flex; flex-direction: column; gap: 12px; }
+.mono { font-family: var(--f-mono); font-variant-numeric: tabular-nums; }
+h1 { font-size: 18px; font-weight: 600; margin: 0; letter-spacing: -.01em; }
+h2 { font-size: 12px; font-weight: 600; margin: 0; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+code { font-family: var(--f-mono); font-size: 12px; background: var(--bg); border: 1px solid var(--line); padding: 0 4px; border-radius: 4px; }
+
+header { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
+.conn { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 500; padding: 3px 10px; border-radius: 99px; background: var(--accent-soft); color: var(--accent); }
+.conn i { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.conn.live { background: var(--ok-soft); color: var(--ok); } .conn.live i { animation: blink 1.4s infinite; }
+.conn.down { background: var(--err-soft); color: var(--err); }
+.status { font-size: 14px; color: var(--muted); }
+.status b { color: var(--fg); font-weight: 600; }
+.status .w b { color: var(--warn); } .status .e b { color: var(--err); }
+.note { flex-basis: 100%; font-size: 12.5px; color: var(--muted); }
+
+.layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, 360px); gap: 12px; align-items: start; }
+.side { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+.card-h { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.btn { font: 500 12px var(--f-sans); color: var(--accent); background: transparent; border: 1px solid var(--line); border-radius: 6px; padding: 3px 9px; cursor: pointer; }
+.btn:hover { border-color: var(--accent); }
+.btn:focus-visible, .agent:focus-visible, .lbl:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* 3D view */
+.stage { position: relative; height: min(68vh, 640px); min-height: 380px; border-radius: 10px; border: 1px solid var(--line); background: var(--space); overflow: hidden; touch-action: none; cursor: grab; }
+.stage:active { cursor: grabbing; }
+.stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.labels { position: absolute; inset: 0; pointer-events: none; }
+.lbl { position: absolute; left: 0; top: 0; transform: translate(-50%, 14px); pointer-events: auto; cursor: pointer; white-space: nowrap; text-align: center;
+  font-size: 12px; font-weight: 600; color: var(--fg); background: color-mix(in srgb, var(--surface) 85%, transparent); border: 1px solid var(--line); border-radius: 6px; padding: 1px 7px; line-height: 1.35; }
+.lbl small { display: block; font: 400 10.5px var(--f-mono); color: var(--muted); max-width: 200px; overflow: hidden; text-overflow: ellipsis; }
+.lbl.tool { font-weight: 500; transform: translate(-50%, 10px); }
+.lbl.waiting { border-color: var(--warn); color: var(--warn); }
+.lbl.working { border-color: var(--ok); }
+.lbl.idle { border-color: var(--err); }
+.lbl.sel { border-color: var(--accent); background: var(--accent-soft); }
+.lbl.dim { opacity: .35; }
+.overlay { position: absolute; left: 12px; bottom: 10px; right: 12px; display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: var(--muted); pointer-events: none; }
+.overlay i { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 5px; vertical-align: -1px; }
+.overlay .sq { border-radius: 2px; }
+.nogl { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; color: var(--muted); padding: 24px; }
+
+/* agents */
+.agents { display: flex; flex-direction: column; gap: 6px; }
+.agent { text-align: left; font: inherit; color: inherit; background: transparent; border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; cursor: pointer; display: grid; grid-template-columns: 9px minmax(0, 1fr) auto; gap: 1px 8px; align-items: center; }
+.agent.sub { margin-left: 16px; }
+.agent:hover { border-color: var(--muted); }
+.agent.sel { border-color: var(--accent); background: var(--accent-soft); }
+.agent .name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agent .now { grid-column: 2 / 4; font-size: 12.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dot { width: 9px; height: 9px; border-radius: 50%; background: var(--idle); }
+.s-working .dot { background: var(--ok); animation: blink 1.2s infinite; }
+.s-waiting .dot { background: var(--warn); }
+.s-error .dot, .s-idle .dot { background: var(--err); }
+.pill { font-size: 11px; font-weight: 500; padding: 1px 8px; border-radius: 99px; background: var(--bg); color: var(--muted); white-space: nowrap; }
+.s-working .pill { background: var(--ok-soft); color: var(--ok); }
+.s-waiting .pill { background: var(--warn-soft); color: var(--warn); }
+.s-error .pill, .s-idle .pill { background: var(--err-soft); color: var(--err); }
+.s-done { opacity: .65; }
+.empty { color: var(--muted); font-size: 13px; }
+
+/* feed */
+.feed { display: flex; flex-direction: column; max-height: 360px; overflow-y: auto; margin-inline: -14px; }
+.row { display: grid; grid-template-columns: 56px minmax(0, 1fr) auto; gap: 2px 10px; padding: 6px 14px; border-top: 1px solid var(--line); font-size: 13px; }
+.row .t { color: var(--muted); font-size: 11px; grid-row: 1 / 3; padding-top: 2px; }
+.row .who { font-size: 12px; font-weight: 600; }
+.row .what { grid-column: 2 / 4; min-width: 0; overflow-wrap: anywhere; }
+.row .st { font-size: 11px; font-family: var(--f-mono); color: var(--muted); text-align: right; }
+.row.run .st { color: var(--ok); } .row.fail .st, .row.fail .what { color: var(--err); }
+.row.ask { background: var(--warn-soft); } .row.ask .st { color: var(--warn); }
+.row.user .what { font-style: italic; }
+
+/* tabs + accounts */
+body.on-acc #conn, body.on-acc #status, body.on-acc #note { display: none; }
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); }
+.tab { font: 600 13px var(--f-sans); color: var(--muted); background: transparent; border: 0; border-bottom: 2px solid transparent; padding: 8px 12px; cursor: pointer; margin-bottom: -1px; }
+.tab[aria-selected="true"] { color: var(--fg); border-bottom-color: var(--accent); }
+.tab:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.acc { display: flex; flex-direction: column; gap: 12px; }
+.gate { display: flex; gap: 10px; align-items: flex-start; background: var(--surface); border: 1px solid var(--line); border-left: 3px solid var(--warn); border-radius: 8px; padding: 10px 14px; font-size: 13px; }
+.gate b { display: block; font-size: 13.5px; }
+.gate span { color: var(--muted); }
+.sources { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.src { font-size: 12px; padding: 3px 10px; border-radius: 99px; border: 1px solid var(--line); background: var(--surface); color: var(--muted); }
+.src.ok { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 40%, var(--line)); }
+.src.bad { color: var(--err); border-color: color-mix(in srgb, var(--err) 40%, var(--line)); }
+.src.off { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 40%, var(--line)); }
+.sessions { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; }
+.sess { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; display: flex; flex-direction: column; gap: 4px; min-width: 0; color: inherit; text-decoration: none; }
+.sess:hover { border-color: var(--accent); }
+.sess .top { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
+.sess .title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sess .what { font-size: 12.5px; color: var(--muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.sess .meta { font-size: 11.5px; color: var(--muted); }
+.sess.s-blocked { border-color: var(--warn); }
+.st-working { background: var(--ok-soft); color: var(--ok); } .st-blocked { background: var(--warn-soft); color: var(--warn); }
+.st-idle, .st-failed { background: var(--err-soft); color: var(--err); } .st-review { background: var(--accent-soft); color: var(--accent); }
+.acc-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(240px, 320px); gap: 12px; align-items: start; }
+.tl { display: flex; flex-direction: column; margin-inline: -14px; }
+.ti { display: grid; grid-template-columns: 112px minmax(0, 1fr) auto; gap: 2px 10px; padding: 7px 14px; border-top: 1px solid var(--line); font-size: 13px; color: inherit; text-decoration: none; align-items: baseline; }
+.ti:hover { background: var(--bg); }
+.ti .kind { font-size: 11.5px; font-weight: 600; color: var(--muted); }
+.ti .txt { min-width: 0; overflow-wrap: anywhere; }
+.ti .txt small { display: block; color: var(--muted); font-size: 12px; }
+.ti .when { font-size: 11.5px; color: var(--muted); white-space: nowrap; }
+.ti.flag { background: var(--warn-soft); } .ti.flag .kind { color: var(--warn); }
+.ti.del .kind { color: var(--err); }
+.mini { display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+.mini a { color: var(--fg); text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mini a:hover { color: var(--accent); }
+.msg { color: var(--muted); font-size: 13px; padding: 6px 0; }
+.btn.primary { background: var(--accent); color: var(--surface); border-color: var(--accent); }
+@media (max-width: 860px) { .acc-grid { grid-template-columns: minmax(0, 1fr); } .ti { grid-template-columns: 1fr auto; } .ti .txt { grid-column: 1 / 3; } }
+@keyframes blink { 50% { opacity: .4; } }
+@media (max-width: 980px) { .layout { grid-template-columns: minmax(0, 1fr); } .stage { height: 60vh; } }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>Agent Monitor</h1>
+    <span class="conn" id="conn"><i></i><span id="connText">Connecting…</span></span>
+    <span class="status" id="status">Starting…</span>
+    <span class="note" id="note">Nothing yet? Check <code>python3 server.py</code> is running, then start or restart Claude Code.</span>
+  </header>
+
+  <div class="tabs" role="tablist">
+    <button class="tab" role="tab" id="tabAcc" aria-selected="true" aria-controls="accounts" type="button">Your accounts</button>
+    <button class="tab" role="tab" id="tabLive" aria-selected="false" aria-controls="live" type="button">Live agents (3D)</button>
+  </div>
+
+  <section class="acc" id="accounts" role="tabpanel" aria-labelledby="tabAcc">
+    <div class="gate"><div><b>Agents must ask you before sending email or deleting anything in your accounts or on GitHub.</b>
+      <span>Claude Code shows an approval prompt first, even in auto mode. This applies to Claude Code sessions on this repo, and on your computer once you run <code>server.py --install</code>.</span></div></div>
+    <div class="sources" id="sources"><button class="btn primary" id="connect" type="button">Connect my accounts</button><span class="msg" id="accMsg">Read-only: this page can only look, never send, edit or delete.</span></div>
+
+    <section class="card" aria-label="Claude Code sessions">
+      <div class="card-h"><h2>Claude Code sessions</h2><span class="msg" id="sessAge"></span></div>
+      <div class="sessions" id="sessions"><div class="msg">Connect your accounts to see your sessions.</div></div>
+    </section>
+
+    <div class="acc-grid">
+      <section class="card" aria-label="Everything in the last 3 days">
+        <div class="card-h"><h2>Last 3 days, everywhere</h2><button class="btn" id="refresh" type="button" hidden>Refresh</button></div>
+        <div class="tl" id="timeline"><div class="msg" style="padding:6px 14px">Emails you sent, things moved to trash, calendar changes, Drive files, pull requests and code pushes appear here.</div></div>
+      </section>
+      <section class="card" aria-label="Recently opened in Notion">
+        <div class="card-h"><h2>Recently opened in Notion</h2></div>
+        <div class="mini" id="notion"><div class="msg">Nothing loaded yet.</div></div>
+      </section>
+    </div>
+  </section>
+
+  <div id="live" role="tabpanel" aria-labelledby="tabLive" hidden>
+  <div class="layout">
+    <section class="stage" id="stage" aria-label="3D map of agents and the tools they use. Drag to turn, scroll to zoom.">
+      <canvas id="gl"></canvas>
+      <div class="labels" id="labels"></div>
+      <div class="overlay">
+        <span><i style="background:var(--ok)"></i>Working</span>
+        <span><i style="background:var(--warn)"></i>Needs you</span>
+        <span><i style="background:var(--err)"></i>Idle</span>
+        <span><i style="background:var(--idle)"></i>Done</span>
+        <span><i class="sq" style="background:var(--tool)"></i>Tool or service</span>
+        <span>Moving dots are calls in flight · drag to turn · scroll to zoom</span>
+      </div>
+    </section>
+
+    <div class="side">
+      <section class="card" aria-label="Agents">
+        <div class="card-h"><h2>Agents</h2><button class="btn" id="showAll" type="button" hidden>Show all</button></div>
+        <div class="agents" id="agents"><div class="empty">No agents yet. They appear when a Claude Code session does something.</div></div>
+      </section>
+      <section class="card" aria-label="Activity">
+        <div class="card-h"><h2 id="feedTitle">Activity</h2><button class="btn" id="pause" type="button" aria-pressed="false">Pause</button></div>
+        <div class="feed" id="feed"></div>
+      </section>
+    </div>
+  </div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(() => {
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const short = (s, n = 80) => { s = String(s ?? "").replace(/\s+/g, " ").trim(); return s.length > n ? s.slice(0, n - 1) + "…" : s; };
+const base = p => String(p || "").split(/[\\/]/).filter(Boolean).pop() || p || "";
+const hhmmss = ts => new Date(ts * 1000).toLocaleTimeString([], { hour12: false });
+const ago = s => s < 60 ? `${Math.round(s)}s` : s < 3600 ? `${Math.floor(s / 60)}m ${Math.round(s % 60)}s` : `${Math.floor(s / 3600)}h ${Math.floor(s / 60) % 60}m`;
+const now = () => Date.now() / 1000;
+const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+/* ================= state (built from Claude Code hook events) ================= */
+const agents = new Map(), targets = new Map(), edges = new Map(), pending = new Map();
+const feed = [];
+let errors = 0, selected = null, paused = false, dirty = true, structure = true;
+const pulses = []; // {from, to, color, t0} for the 3D view
+
+function ensureMain(e) {
+  const id = "S:" + e.session_id;
+  if (!agents.has(id)) { agents.set(id, { id, kind: "main", label: base(e.cwd) || "session", status: "idle", now: "", last: e.ts, calls: 0, subs: [] }); structure = true; }
+  const a = agents.get(id); if (e.cwd) a.label = base(e.cwd); return a;
+}
+function ensureSub(e) {
+  const m = ensureMain(e);
+  if (!agents.has(e.agent_id)) {
+    agents.set(e.agent_id, { id: e.agent_id, kind: "sub", parent: m.id, label: (e.agent_type || "helper") + " agent", status: "working", now: "", started: e.ts, last: e.ts, calls: 0 });
+    m.subs.push(e.agent_id); edge(m.id, e.agent_id, e.ts).active = 1; structure = true;
+  }
+  return agents.get(e.agent_id);
+}
+const agentOf = e => e.agent_id ? ensureSub(e) : ensureMain(e);
+function edge(from, to, ts) {
+  const k = from + "|" + to;
+  if (!edges.has(k)) { edges.set(k, { from, to, count: 0, active: 0, last: ts, err: false }); structure = true; }
+  return edges.get(k);
+}
+
+function describe(name, i = {}) {
+  const f = i.file_path || i.notebook_path || i.path;
+  if (/^mcp__/.test(name)) {
+    const [, server, ...rest] = name.split("__");
+    return { key: "mcp:" + server, label: server, text: `called <code>${esc(rest.join("__"))}</code> on ${esc(server)}` };
+  }
+  switch (name) {
+    case "Bash": return { key: "shell", label: "Shell", text: `ran <code>${esc(short(i.command, 90))}</code>` };
+    case "Read": return { key: "files", label: "Files", text: `read ${esc(base(f))}` };
+    case "Write": return { key: "files", label: "Files", text: `wrote ${esc(base(f))}` };
+    case "Edit": case "MultiEdit": case "NotebookEdit": return { key: "files", label: "Files", text: `edited ${esc(base(f))}` };
+    case "Grep": return { key: "search", label: "Code search", text: `searched code for <code>${esc(short(i.pattern, 50))}</code>` };
+    case "Glob": return { key: "search", label: "Code search", text: `listed files matching <code>${esc(short(i.pattern, 50))}</code>` };
+    case "WebFetch": return { key: "web", label: "Web", text: `opened ${esc(short(i.url, 70))}` };
+    case "WebSearch": return { key: "web", label: "Web", text: `searched the web for “${esc(short(i.query, 60))}”` };
+    case "TodoWrite": case "TaskCreate": case "TaskUpdate": return { key: "tasks", label: "Task list", text: "updated its task list" };
+    default: return { key: "tool:" + name, label: name, text: `used ${esc(name)}` };
+  }
+}
+const plain = html => html.replace(/<[^>]+>/g, "").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"');
+
+function addRow(e, who, html, cls = "", st = "") {
+  const r = { ts: e.ts, who: who.label, agent: who.id, html, cls, st };
+  feed.unshift(r); if (feed.length > 400) feed.pop(); return r;
+}
+
+function ingest(e) {
+  e.ts = e.ts || now();
+  const a = agentOf(e), main = agents.get(a.kind === "main" ? a.id : a.parent);
+  a.last = main.last = e.ts;
+  switch (e.hook_event_name) {
+    case "SessionStart": addRow(e, a, `session ${e.source === "resume" ? "resumed" : "started"} in ${esc(e.cwd)}`); break;
+    case "UserPromptSubmit": main.status = "working"; addRow(e, { label: "You", id: main.id }, `“${esc(short(e.prompt, 160))}”`, "user"); break;
+    case "PreToolUse": {
+      a.status = "working"; main.status = "working";
+      const i = e.tool_input || {};
+      if (e.tool_name === "Agent" || e.tool_name === "Task") { addRow(e, a, `handed a job to the <b>${esc(i.subagent_type || "general")}</b> agent: ${esc(short(i.description || i.prompt, 90))}`); break; }
+      const d = describe(e.tool_name, i), tid = "T:" + d.key;
+      if (!targets.has(tid)) { targets.set(tid, { id: tid, label: d.label, calls: 0 }); structure = true; }
+      targets.get(tid).calls++;
+      const ed = edge(a.id, tid, e.ts); ed.count++; ed.active++; ed.last = e.ts;
+      a.calls++; a.now = plain(d.text);
+      pulses.push({ from: a.id, to: tid, kind: "go", t0: performance.now() });
+      pending.set(e.tool_use_id, { a, ed, row: addRow(e, a, d.text, "run", "running"), ts: e.ts });
+      break;
+    }
+    case "PostToolUse": case "PostToolUseFailure": {
+      const p = pending.get(e.tool_use_id);
+      const fail = e.hook_event_name === "PostToolUseFailure" || !!(e.tool_response && (e.tool_response.is_error || e.tool_response.interrupted));
+      if (p) {
+        pending.delete(e.tool_use_id);
+        p.ed.active = Math.max(0, p.ed.active - 1); p.ed.last = e.ts; p.ed.err = fail;
+        p.row.cls = fail ? "fail" : ""; p.row.st = (fail ? "failed · " : "") + ago(e.ts - p.ts);
+        pulses.push({ from: p.ed.to, to: p.a.id, kind: fail ? "err" : "back", t0: performance.now() });
+        if (![...pending.values()].some(x => x.a === p.a)) p.a.now = "";
+      }
+      if (fail) errors++;
+      break;
+    }
+    case "PermissionRequest": {
+      a.status = main.status = "waiting";
+      const d = describe(e.tool_name, e.tool_input);
+      a.now = "needs your OK to " + plain(d.text);
+      addRow(e, a, `is asking permission to ${d.text}`, "ask", "needs you");
+      break;
+    }
+    case "Notification": {
+      const ask = /waiting|permission|input/i.test(e.message || "");
+      if (ask) { main.status = "waiting"; main.now = e.message; }
+      addRow(e, main, esc(e.message || "notification"), ask ? "ask" : "");
+      break;
+    }
+    case "SubagentStart": a.status = "working"; addRow(e, a, "started"); break;
+    case "SubagentStop": {
+      a.status = "done"; a.now = "";
+      const ed = edges.get(a.parent + "|" + a.id); if (ed) { ed.active = 0; ed.last = e.ts; }
+      pulses.push({ from: a.id, to: a.parent, kind: "back", t0: performance.now() });
+      addRow(e, a, `finished and reported back to ${esc(agents.get(a.parent).label)}`, "", ago(e.ts - a.started));
+      break;
+    }
+    case "Stop": main.status = "idle"; main.now = ""; addRow(e, main, "finished its turn"); break;
+    case "StopFailure": main.status = "error"; main.now = "stopped on an API error"; errors++; addRow(e, main, "stopped because of an API error", "fail"); break;
+    case "TaskCreated": addRow(e, a, `added task: ${esc(short(e.task_subject || e.subject || e.description, 80))}`); break;
+    case "TaskCompleted": addRow(e, a, `completed task: ${esc(short(e.task_subject || e.subject || e.description, 80))}`); break;
+    default: addRow(e, a, esc(e.hook_event_name));
+  }
+  dirty = true;
+}
+
+/* ================= side panels ================= */
+const statusText = { working: "Working", waiting: "Needs you", idle: "Idle", done: "Done", error: "Error" };
+function ordered() {
+  const out = [];
+  for (const a of agents.values()) if (a.kind === "main") { out.push(a); a.subs.forEach(id => out.push(agents.get(id))); }
+  return out;
+}
+const inSel = id => !selected || id === selected || agents.get(id)?.parent === selected;
+
+function renderSide() {
+  const list = ordered();
+  const working = list.filter(a => a.status === "working").length, waiting = list.filter(a => a.status === "waiting").length;
+  $("status").innerHTML = `<b>${working}</b> working · <span class="${waiting ? "w" : ""}"><b>${waiting}</b> need${waiting === 1 ? "s" : ""} you</span> · <span class="${errors ? "e" : ""}"><b>${errors}</b> failed</span>`;
+  if (list.length) $("agents").innerHTML = list.map(a => `
+    <button type="button" class="agent ${a.kind} s-${a.status} ${selected === a.id ? "sel" : ""}" data-id="${esc(a.id)}">
+      <span class="dot"></span><span class="name">${esc(a.label)}</span><span class="pill">${statusText[a.status]}</span>
+      <span class="now">${esc(a.now || (a.status === "idle" ? "Waiting for your next message" : a.status === "done" ? `Done after ${a.calls} calls` : "Thinking…"))}</span>
+    </button>`).join("");
+  $("showAll").hidden = !selected;
+  if (paused) return;
+  $("feedTitle").textContent = selected ? `Activity · ${agents.get(selected).label}` : "Activity";
+  $("feed").innerHTML = feed.filter(r => inSel(r.agent)).slice(0, 150).map(r => `
+    <div class="row ${r.cls}"><span class="t mono">${hhmmss(r.ts)}</span><span class="who">${esc(r.who)}</span><span class="st">${esc(r.st)}</span><span class="what">${r.html}</span></div>`).join("")
+    || `<div class="empty" style="padding:6px 14px">No activity yet.</div>`;
+}
+
+/* ================= 3D view ================= */
+const stage = $("stage"), labelsEl = $("labels");
+let R = null; // renderer bundle, null when WebGL is unavailable
+const nodes = new Map(); // id -> {mesh, halo, el, pos(Vector3 target), kind}
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+let C = {};
+function readColors() { C = Object.fromEntries(["--space", "--ok", "--warn", "--idle", "--err", "--accent", "--tool", "--line", "--muted"].map(k => [k.slice(2), new THREE.Color(css(k))])); }
+
+function init3D() {
+  if (!window.THREE) throw new Error("three.js did not load");
+  readColors();
+  const renderer = new THREE.WebGLRenderer({ canvas: $("gl"), antialias: true });
+  renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(45, 1, .1, 500);
+  scene.add(new THREE.AmbientLight(0xffffff, .65));
+  const sun = new THREE.DirectionalLight(0xffffff, .7); sun.position.set(5, 12, 8); scene.add(sun);
+  const grid = new THREE.PolarGridHelper(16, 8, 4, 64); grid.position.y = -2.6; scene.add(grid);
+  const orbit = { theta: .7, phi: .95, r: 25, auto: true };
+  R = { renderer, scene, camera, grid, orbit, lines: new Map(), dots: [] };
+
+  // drag to turn, wheel / pinch to zoom
+  let drag = null, pinch = null; const pts = new Map();
+  stage.addEventListener("pointerdown", e => { if (e.target.closest(".lbl")) return; pts.set(e.pointerId, e); stage.setPointerCapture(e.pointerId); drag = { x: e.clientX, y: e.clientY }; orbit.auto = false; });
+  stage.addEventListener("pointermove", e => {
+    if (!pts.has(e.pointerId)) return; pts.set(e.pointerId, e);
+    if (pts.size === 2) { const [a, b] = [...pts.values()], d = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY); if (pinch) orbit.r = clampR(orbit.r * pinch / d); pinch = d; return; }
+    if (!drag) return;
+    orbit.theta -= (e.clientX - drag.x) * .008; orbit.phi = Math.min(1.5, Math.max(.25, orbit.phi - (e.clientY - drag.y) * .006));
+    drag = { x: e.clientX, y: e.clientY };
+  });
+  const up = e => { pts.delete(e.pointerId); pinch = null; if (!pts.size) drag = null; };
+  stage.addEventListener("pointerup", up); stage.addEventListener("pointercancel", up);
+  stage.addEventListener("wheel", e => { e.preventDefault(); orbit.r = clampR(orbit.r * (1 + e.deltaY * .001)); }, { passive: false });
+  stage.addEventListener("dblclick", () => { orbit.auto = true; });
+}
+const clampR = r => Math.min(70, Math.max(10, r));
+
+function nodeFor(id, kind) {
+  if (nodes.has(id)) return nodes.get(id);
+  const geo = kind === "tool" ? new THREE.BoxGeometry(1.1, 1.1, 1.1) : new THREE.SphereGeometry(kind === "main" ? 1.1 : .7, 32, 20);
+  const mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: C.idle, roughness: .45, metalness: .1, emissive: new THREE.Color(0), emissiveIntensity: .6 }));
+  const halo = new THREE.Mesh(new THREE.SphereGeometry(kind === "tool" ? 1.15 : kind === "main" ? 1.7 : 1.15, 24, 16), new THREE.MeshBasicMaterial({ color: C.ok, transparent: true, opacity: 0, depthWrite: false }));
+  mesh.add(halo); R.scene.add(mesh);
+  const el = document.createElement("div");
+  el.className = "lbl" + (kind === "tool" ? " tool" : ""); el.tabIndex = kind === "tool" ? -1 : 0; el.dataset.id = id;
+  labelsEl.appendChild(el);
+  const n = { id, kind, mesh, halo, el, pos: new THREE.Vector3(), seen: false };
+  nodes.set(id, n); return n;
+}
+
+// Main agents sit near the middle, each with its subagents circling it; tools and services ring the outside.
+function layout() {
+  const mains = [...agents.values()].filter(a => a.kind === "main");
+  mains.forEach((m, i) => {
+    const ang = i / mains.length * Math.PI * 2, rad = mains.length > 1 ? 6.5 : 0;
+    const n = nodeFor(m.id, "main"); n.pos.set(Math.cos(ang) * rad, 0, Math.sin(ang) * rad);
+    m.subs.forEach((sid, j) => {
+      const a2 = ang + (j - (m.subs.length - 1) / 2) * .9 + (mains.length > 1 ? 0 : j * 1.6);
+      const sn = nodeFor(sid, "sub"); sn.pos.set(n.pos.x + Math.cos(a2) * 4, 3, n.pos.z + Math.sin(a2) * 4);
+    });
+  });
+  const tg = [...targets.values()];
+  tg.forEach((t, i) => {
+    const ang = i / tg.length * Math.PI * 2 + .3;
+    nodeFor(t.id, "tool").pos.set(Math.cos(ang) * 13, i % 2 ? -1.2 : .6, Math.sin(ang) * 13);
+  });
+  for (const n of nodes.values()) if (!n.seen) { n.mesh.position.copy(n.pos).multiplyScalar(.2); n.seen = true; }
+  for (const [k, ed] of edges) if (!R.lines.has(k)) {
+    const g = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]);
+    const line = new THREE.Line(g, new THREE.LineBasicMaterial({ color: C.line, transparent: true, opacity: .7 }));
+    R.scene.add(line); R.lines.set(k, line);
+  }
+  structure = false;
+}
+
+const dotGeo = () => R.dotGeo || (R.dotGeo = new THREE.SphereGeometry(.22, 12, 8));
+let lastFrame = performance.now();
+function frame(t) {
+  const dt = Math.min(.05, (t - lastFrame) / 1000); lastFrame = t;
+  if (structure) layout();
+  const { renderer, scene, camera, orbit } = R;
+  const w = stage.clientWidth, h = stage.clientHeight;
+  if (!w || !h) { requestAnimationFrame(frame); return; }
+  if (renderer.domElement.width !== Math.round(w * renderer.getPixelRatio())) { renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix(); }
+  if (orbit.auto && !reduce) orbit.theta += dt * .08;
+  camera.position.set(orbit.r * Math.sin(orbit.phi) * Math.cos(orbit.theta), orbit.r * Math.cos(orbit.phi), orbit.r * Math.sin(orbit.phi) * Math.sin(orbit.theta));
+  camera.lookAt(0, 0, 0);
+  scene.background = C.space;
+  R.grid.material.color = C.line; R.grid.material.opacity = .3; R.grid.material.transparent = true;
+
+  const nowS = now(), pulse = .5 + .5 * Math.sin(t / 260);
+  for (const n of nodes.values()) {
+    n.mesh.position.lerp(n.pos, 1 - Math.pow(.02, dt));
+    const a = agents.get(n.id), st = a ? a.status : null;
+    let col = C.tool, glow = 0;
+    if (a) col = st === "working" ? C.ok : st === "waiting" ? C.warn : st === "error" || st === "idle" ? C.err : C.idle;
+    else if ([...edges.values()].some(e => e.to === n.id && e.active)) glow = .35;
+    n.mesh.material.color.copy(col); n.mesh.material.emissive.copy(col).multiplyScalar(st === "working" || st === "waiting" ? .35 : glow);
+    n.halo.material.color.copy(col);
+    n.halo.material.opacity = st === "waiting" ? .15 + .25 * pulse : st === "working" ? .12 : glow ? .12 : 0;
+    if (n.kind === "tool") n.mesh.rotation.y += dt * .3;
+    const dim = selected && a && !inSel(n.id);
+    n.mesh.material.transparent = true; n.mesh.material.opacity = dim ? .25 : st === "done" ? .55 : 1;
+  }
+  for (const [k, line] of R.lines) {
+    const ed = edges.get(k), A = nodes.get(ed.from), B = nodes.get(ed.to); if (!A || !B) continue;
+    const p = line.geometry.attributes.position; p.setXYZ(0, ...A.mesh.position.toArray()); p.setXYZ(1, ...B.mesh.position.toArray()); p.needsUpdate = true;
+    const dim = selected && !inSel(ed.from);
+    line.material.color.copy(ed.active ? C.ok : ed.err ? C.err : nowS - ed.last < 60 ? C.accent : C.line);
+    line.material.opacity = dim ? .1 : ed.active ? 1 : nowS - ed.last < 60 ? .75 : .45;
+  }
+  // travelling dots: out to the tool (green), back to the agent (blue, or red on failure)
+  for (let i = pulses.length - 1; i >= 0; i--) {
+    const p = pulses[i];
+    if (!p.mesh) { p.mesh = new THREE.Mesh(dotGeo(), new THREE.MeshBasicMaterial({ color: p.kind === "go" ? C.ok : p.kind === "err" ? C.err : C.accent })); scene.add(p.mesh); }
+    const A = nodes.get(p.from), B = nodes.get(p.to), k = (t - p.t0) / 700;
+    if (!A || !B || k >= 1) { scene.remove(p.mesh); pulses.splice(i, 1); continue; }
+    p.mesh.position.lerpVectors(A.mesh.position, B.mesh.position, k).y += Math.sin(k * Math.PI) * 1.2;
+  }
+  renderer.render(scene, camera);
+
+  // HTML labels pinned to their 3D objects
+  const tmp = new THREE.Vector3();
+  for (const n of nodes.values()) {
+    tmp.copy(n.mesh.position).project(camera);
+    const vis = tmp.z < 1;
+    n.el.hidden = !vis; if (!vis) continue;
+    n.el.style.transform = `translate(${(tmp.x * .5 + .5) * w}px, ${(-tmp.y * .5 + .5) * h}px) ${n.kind === "sub" ? "translate(-50%, calc(-100% - 16px))" : `translate(-50%, ${n.kind === "tool" ? 14 : 22}px)`}`;
+    n.el.style.zIndex = String(Math.round((1 - tmp.z) * 10000));
+  }
+  requestAnimationFrame(frame);
+}
+function updateLabels() {
+  for (const n of nodes.values()) {
+    const a = agents.get(n.id);
+    if (a) {
+      n.el.className = `lbl ${a.status} ${selected === a.id ? "sel" : ""} ${selected && !inSel(a.id) ? "dim" : ""}`;
+      n.el.innerHTML = `${esc(a.label)}<small>${esc(a.now || statusText[a.status])}</small>`;
+    } else {
+      const tg = targets.get(n.id);
+      n.el.innerHTML = `${esc(tg.label)}<small>${tg.calls} call${tg.calls === 1 ? "" : "s"}</small>`;
+    }
+  }
+}
+
+try { init3D(); requestAnimationFrame(frame); }
+catch (err) { R = null; stage.innerHTML = `<div class="nogl">The 3D view needs WebGL and an internet connection to load. Agents and activity still update on the right.</div>`; }
+
+function render() {
+  if (!dirty) return; dirty = false;
+  renderSide(); if (R) updateLabels();
+}
+setInterval(() => { dirty = true; render(); }, 1000);
+const kick = () => requestAnimationFrame(render);
+if (R) matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => setTimeout(readColors, 50));
+if (R) new MutationObserver(() => setTimeout(readColors, 50)).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+
+/* ================= interaction ================= */
+function pick(id) { if (!agents.has(id)) return; selected = selected === id ? null : id; dirty = true; render(); }
+$("agents").addEventListener("click", e => { const b = e.target.closest("[data-id]"); if (b) pick(b.dataset.id); });
+labelsEl.addEventListener("click", e => { const b = e.target.closest("[data-id]"); if (b) pick(b.dataset.id); });
+labelsEl.addEventListener("keydown", e => { const b = e.target.closest("[data-id]"); if (b && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); pick(b.dataset.id); } });
+$("showAll").addEventListener("click", () => pick(selected));
+$("pause").addEventListener("click", e => { paused = !paused; e.target.textContent = paused ? "Resume" : "Pause"; e.target.setAttribute("aria-pressed", paused); dirty = true; render(); });
+
+/* ================= data source ================= */
+function setConn(cls, text) { $("conn").className = "conn " + cls; $("connText").textContent = text; }
+function live() {
+  const es = new EventSource("/stream"); let opened = false;
+  es.onopen = () => { opened = true; setConn("live", "Live"); $("note").hidden = true; };
+  es.onmessage = m => { try { ingest(JSON.parse(m.data)); kick(); } catch (err) { console.error(err); } };
+  es.onerror = () => setConn("down", opened ? "Disconnected, retrying…" : "Waiting for server.py…");
+}
+const isLocal = /^https?:$/.test(location.protocol) && /^(127\.0\.0\.1|localhost|\[::1\])$/.test(location.hostname);
+if (isLocal) live();
+
+})();
+</script>
+<script>
+/* ===== Your accounts: read-only views of the viewer's connected accounts via claude.ai connectors ===== */
+(() => {
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const DAY = 864e5, SINCE = Date.now() - 3 * DAY;
+const since = new Date(SINCE).toISOString().slice(0, 10);
+const ago = t => { const s = (Date.now() - t) / 1000; return s < 90 ? "just now" : s < 3600 ? `${Math.round(s / 60)} min ago` : s < 86400 ? `${Math.round(s / 3600)} h ago` : `${Math.round(s / 86400)} d ago`; };
+const when = t => new Date(t).toLocaleString([], { weekday: "short", hour: "numeric", minute: "2-digit" });
+const safeUrl = u => /^https:\/\//.test(u || "") ? u : null;
+
+/* tabs */
+const tabs = { acc: [$("tabAcc"), $("accounts")], live: [$("tabLive"), $("live")] };
+function show(name) {
+  for (const [k, [t, p]] of Object.entries(tabs)) { t.setAttribute("aria-selected", k === name); p.hidden = k !== name; }
+  document.body.classList.toggle("on-acc", name === "acc");
+}
+$("tabAcc").addEventListener("click", () => show("acc"));
+$("tabLive").addEventListener("click", () => show("live"));
+show("acc");
+const isLocal = /^https?:$/.test(location.protocol) && /^(127\.0\.0\.1|localhost|\[::1\])$/.test(location.hostname);
+if (isLocal) show("live"); else document.querySelector(".tabs").hidden = true;
+
+/* one entry per source: what to read, and how to turn the answer into timeline items */
+const SOURCES = [
+  { id: "sessions", label: "Claude Code", server: "Claude Code Remote", tool: "list_sessions", input: { limit: 12 } },
+  { id: "repos", label: "GitHub pushes", server: "Claude Code Remote", tool: "list_repos", input: { limit: 50 } },
+  { id: "prs", label: "GitHub pull requests", server: "GitHub", tool: "search_pull_requests",
+    input: { query: `author:@me updated:>=${since}`, sort: "updated", order: "desc", perPage: 20, fields: ["number", "title", "state", "html_url", "updated_at", "repository_url"] } },
+  { id: "sent", label: "Gmail sent", server: "Gmail", tool: "search_threads", input: { query: "in:sent newer_than:3d", pageSize: 25 } },
+  { id: "trash", label: "Gmail trash", server: "Gmail", tool: "search_threads", input: { query: "in:trash newer_than:3d", includeTrash: true, pageSize: 25 } },
+  { id: "cal", label: "Calendar", server: "Google Calendar", tool: "list_events", input: { orderBy: "lastModified", pageSize: 100 } },
+  { id: "drive", label: "Drive", server: "Google Drive", tool: "list_recent_files", input: { orderBy: "lastModified", pageSize: 20, excludeContentSnippets: true } },
+  { id: "notion", label: "Notion", server: "Notion", tool: "notion-list-recent-pages", input: { limit: 8 } },
+];
+const state = Object.fromEntries(SOURCES.map(s => [s.id, { status: "idle", items: [], raw: null, at: 0, err: null }]));
+
+const parse = p => {
+  if (typeof p !== "string") return p || {};
+  const i = p.indexOf("{"), j = p.lastIndexOf("}");
+  try { return i >= 0 ? JSON.parse(p.slice(i, j + 1)) : {}; } catch { return {}; }
+};
+const TO_ITEMS = {
+  repos: p => (p.repos || []).filter(r => Date.parse(r.pushed_at) > SINCE).map(r => ({ t: Date.parse(r.pushed_at), kind: "Code pushed", text: r.full_name, url: r.url })),
+  prs: p => (p.items || []).map(x => ({ t: Date.parse(x.updated_at), kind: `Pull request · ${x.state || ""}`, text: x.title, sub: String(x.repository_url || "").split("/").slice(-2).join("/"), url: x.html_url })),
+  sent: p => (p.threads || []).flatMap(th => (th.messages || []).filter(m => (m.labelIds || []).includes("SENT") && Date.parse(m.date) > SINCE)
+    .map(m => ({ t: Date.parse(m.date), kind: "Email sent", text: m.subject || "(no subject)", sub: "to " + (m.toRecipients || []).join(", "), url: m.viewUrl, flag: true }))),
+  trash: p => (p.threads || []).flatMap(th => (th.messages || []).filter(m => (m.labelIds || []).includes("TRASH") && Date.parse(m.date) > SINCE).slice(0, 1)
+    .map(m => ({ t: Date.parse(m.date), kind: "Email in trash", text: m.subject || "(no subject)", sub: "from " + (m.sender || "unknown") + " · date of email, not when it was trashed", url: th.viewUrl || m.viewUrl, del: true }))),
+  cal: p => (p.events || []).filter(e => Date.parse(e.updated) > SINCE).map(e => ({ t: Date.parse(e.updated), kind: e.created === e.updated ? "Event created" : "Event changed",
+    text: e.summary || "(untitled event)", sub: "starts " + new Date(e.start?.dateTime || e.start?.date).toLocaleString([], { weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }), url: e.htmlLink })),
+  drive: p => (p.files || []).filter(f => Date.parse(f.modifiedTime) > SINCE).map(f => ({ t: Date.parse(f.modifiedTime), kind: f.createdTime === f.modifiedTime ? "File created" : "File changed",
+    text: f.title, sub: (f.owner ? "owner " + f.owner : ""), url: f.viewUrl })),
+};
+
+/* ---------- rendering ---------- */
+const FIX = {
+  server_not_connected: s => `add ${s.server} in claude.ai Settings → Connectors`,
+  needs_reauth: s => `reconnect ${s.server} in claude.ai Settings → Connectors`,
+  selection_required: () => "choose which account to use",
+  not_in_manifest: () => "not allowed for this page",
+  blocked_by_policy: () => "blocked by your organization",
+  approval_required: () => "needs approval from your organization",
+};
+function renderSources() {
+  const groups = {};
+  for (const s of SOURCES) (groups[s.label] = groups[s.label] || []).push(s);
+  $("sources").innerHTML = SOURCES.map(s => {
+    const st = state[s.id];
+    if (st.status === "loading") return `<span class="src">${esc(s.label)} · loading</span>`;
+    if (st.status === "ok") return `<span class="src ok">${esc(s.label)} ✓</span>`;
+    if (st.status === "error") {
+      const fix = FIX[st.err.code];
+      return `<span class="src ${fix ? "off" : "bad"}" title="${esc(st.err.message)}">${esc(s.label)}: ${esc(fix ? fix(s) : "couldn't load")}</span>`;
+    }
+    return "";
+  }).join("") + (started ? "" : `<button class="btn primary" id="connect" type="button">Connect my accounts</button><span class="msg">Read-only: this page can only look, never send, edit or delete.</span>`);
+  $("connect")?.addEventListener("click", start);
+}
+
+const BUCKET = {
+  SESSION_STATUS_BUCKET_WORKING: ["Working", "working"], SESSION_STATUS_BUCKET_BLOCKED: ["Needs you", "blocked"],
+  SESSION_STATUS_BUCKET_REVIEW_READY: ["Ready to review", "review"], SESSION_STATUS_BUCKET_COMPLETED: ["Idle", "idle"],
+  SESSION_STATUS_BUCKET_FAILED: ["Failed", "failed"],
+};
+function renderSessions() {
+  const st = state.sessions;
+  if (st.status === "error") { $("sessions").innerHTML = `<div class="msg">Couldn't load sessions: ${esc(FIX[st.err.code] ? FIX[st.err.code](SOURCES[0]) : st.err.message)}.</div>`; return; }
+  if (st.status !== "ok") return;
+  const p = st.raw, list = p.ccr?.data || p.data || p.sessions || [];
+  $("sessAge").textContent = st.at ? "updated " + ago(st.at) : "";
+  if (!list.length) { $("sessions").innerHTML = `<div class="msg">No Claude Code sessions yet.</div>`; return; }
+  $("sessions").innerHTML = list.map(x => {
+    const [label, cls] = BUCKET[x.status_bucket] || ["Idle", "idle"];
+    const sum = x.post_turn_summary || x.external_metadata?.post_turn_summary || {};
+    const need = sum.needs_action;
+    const repo = (x.session_context?.sources || []).map(s => String(s.git_repository?.url || "").split("/").slice(-1)[0]).filter(Boolean).join(", ");
+    const cost = x.external_metadata?.usage?.cost_usd;
+    const href = /^session_[A-Za-z0-9]+$/.test(x.id) ? `https://claude.ai/code/${x.id}` : null;
+    return `<a class="sess s-${cls}" ${href ? `href="${href}" target="_blank" rel="noopener"` : ""}>
+      <div class="top"><span class="title">${esc(x.title || "Untitled session")}</span><span class="pill st-${cls}">${label}</span></div>
+      <div class="what">${esc(need ? "Needs you: " + need : sum.status_detail || sum.recent_action || "No summary yet")}</div>
+      <div class="meta mono">${esc(repo)}${repo ? " · " : ""}active ${ago(Date.parse(x.updated_at))}${cost != null ? ` · $${Number(cost).toFixed(2)}` : ""}</div></a>`;
+  }).join("");
+}
+function renderTimeline() {
+  const items = Object.keys(TO_ITEMS).flatMap(id => state[id].items).filter(x => x.t && !isNaN(x.t)).sort((a, b) => b.t - a.t);
+  const anyDone = Object.keys(TO_ITEMS).some(id => state[id].status === "ok" || state[id].status === "error");
+  if (!anyDone) return;
+  $("timeline").innerHTML = items.slice(0, 120).map(x => {
+    const u = safeUrl(x.url);
+    return `<a class="ti ${x.flag ? "flag" : ""} ${x.del ? "del" : ""}" ${u ? `href="${esc(u)}" target="_blank" rel="noopener"` : ""}>
+      <span class="kind">${esc(x.kind)}</span><span class="txt">${esc(x.text)}${x.sub ? `<small>${esc(x.sub)}</small>` : ""}</span><span class="when">${when(x.t)}</span></a>`;
+  }).join("") || `<div class="msg" style="padding:6px 14px">Nothing in the last 3 days from the accounts that loaded.</div>`;
+}
+function renderNotion() {
+  const st = state.notion;
+  if (st.status === "error") { $("notion").innerHTML = `<div class="msg">${esc(FIX[st.err.code] ? FIX[st.err.code](SOURCES.at(-1)) : "Couldn't load Notion")}.</div>`; return; }
+  if (st.status !== "ok") return;
+  const r = st.raw.results || [];
+  $("notion").innerHTML = r.map(x => { const u = safeUrl(x.url); return `<a ${u ? `href="${esc(u)}" target="_blank" rel="noopener"` : ""}>${esc(x.title || "Untitled")}</a>`; }).join("") || `<div class="msg">No recent pages.</div>`;
+}
+const renderAll = () => { renderSources(); renderSessions(); renderTimeline(); renderNotion(); };
+
+/* ---------- data ---------- */
+let mcp = null, started = false, unsubs = [];
+function onEvent(src) {
+  return ev => {
+    const st = state[src.id];
+    if (ev.type === "data") {
+      st.status = "ok"; st.err = null; st.raw = parse(ev.result.payload); st.at = ev.result.cache?.storedAt || Date.now();
+      try { st.items = TO_ITEMS[src.id] ? TO_ITEMS[src.id](st.raw) : []; } catch { st.items = []; }
+    } else {
+      const authz = ["needs_reauth", "server_not_connected", "blocked_by_policy", "approval_required", "not_in_manifest", "selection_required"].includes(ev.error.code);
+      if (authz || st.status !== "ok") { st.status = "error"; st.err = ev.error; if (authz) { st.items = []; st.raw = null; } }
+    }
+    renderAll();
+  };
+}
+async function start() {
+  if (!mcp || started) return;
+  started = true;
+  SOURCES.forEach(s => state[s.id].status = "loading");
+  renderAll();
+  try { const perms = await claude.use("permissions"); await perms?.request(["mcp"]); } catch {}
+  unsubs = SOURCES.map(s => mcp.watchTool(s.server, s.tool, s.input, onEvent(s), { refetchInterval: 120000 }));
+  $("refresh").hidden = false;
+}
+$("refresh").addEventListener("click", async () => { try { await mcp.invalidate(); } catch {} });
+renderSources();
+
+(async () => {
+  try { mcp = await window.claude?.use?.("mcp"); } catch { mcp = null; }
+  if (!mcp) {
+    $("sources").innerHTML = `<span class="msg">Your accounts show when this page is opened on claude.ai. ${isLocal ? "The live agents tab works here." : ""}</span>`;
+    return;
+  }
+  // Start straight away if the viewer already allowed these accounts before; otherwise wait for the button.
+  try {
+    const perms = await claude.use("permissions");
+    const s = await perms?.state("mcp").catch(() => "unavailable");
+    if (s === "granted") start();
+  } catch {}
+})();
+})();
+</script>
